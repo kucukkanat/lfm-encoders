@@ -10,6 +10,33 @@ categories) and [policy linting](https://huggingface.co/spaces/LiquidAI/policy-l
 against free-text rules) — plus fill-mask on the base encoder. Both zero-shot tasks take arbitrary labels
 supplied at call time; nothing is trained, fine-tuned or cached per label set.
 
+## Live demo
+
+**<https://kucukkanat.github.io/lfm-encoders/>** — runs entirely in your browser. The weights stream from
+the Hugging Face Hub on first use and are cached afterwards; nothing you type leaves the tab.
+
+Start on `q8` (357 MB). `fp32` is exact and faster once loaded, but it is a 1.4 GB download.
+
+[![Zero-shot prompt routing](docs/screenshots/prompt-routing.png)](https://kucukkanat.github.io/lfm-encoders/)
+
+Scoring free-text categories in one bidirectional pass — the categories are prose you type, nothing is
+trained per label set.
+
+[![Zero-shot policy linting](docs/screenshots/policy-linting.png)](https://kucukkanat.github.io/lfm-encoders/)
+
+Every word scored against every rule, also in one pass. The threshold slider re-filters without
+re-running the model.
+
+<details>
+<summary>Fill-mask on the base encoder</summary>
+
+[![Fill-mask](docs/screenshots/fill-mask.png)](https://kucukkanat.github.io/lfm-encoders/)
+
+</details>
+
+The deployed page is not cross-origin isolated (GitHub Pages cannot set COOP/COEP), so onnxruntime falls
+back to single-threaded WASM there. Run it locally for the faster threaded build.
+
 ## Quickstart
 
 ```bash

@@ -64,6 +64,10 @@ All credit for the model itself goes to [Liquid AI](https://huggingface.co/Liqui
 contains only a re-export; the weights are unchanged apart from quantization, and the original
 [LFM Open License v1.0]({source_url}/blob/main/LICENSE) applies.
 
+**[Try it in your browser →](https://kucukkanat.github.io/lfm-encoders/)** — no install, no API key.
+
+![{screenshot_alt}]({screenshot})
+
 Tooling, demo and the export pipeline: <https://github.com/kucukkanat/lfm-encoders>
 
 ## Files
@@ -179,6 +183,14 @@ ACCURACY = {
     ),
 }
 
+RAW = "https://raw.githubusercontent.com/kucukkanat/lfm-encoders/main/docs/screenshots"
+
+SCREENSHOTS = {
+    "fill-mask": ("fill-mask.png", "Fill-mask running in the browser"),
+    "zero-shot-routing": ("prompt-routing.png", "Zero-shot prompt routing in the browser"),
+    "zero-shot-token-matching": ("policy-linting.png", "Zero-shot policy linting in the browser"),
+}
+
 PIPELINE = {
     "fill-mask": "fill-mask",
     "zero-shot-routing": "zero-shot-classification",
@@ -206,7 +218,10 @@ def build_card(spec: ModelSpec, out_dir: Path, repo: str, dtypes: tuple[str, ...
         )
         extra = EXTRA_TWO_TOWER.format(heading=head["prefix_heading"], scoring=scoring)
 
+    shot, alt = SCREENSHOTS[spec.task]
     return CARD.format(
+        screenshot=f"{RAW}/{shot}",
+        screenshot_alt=alt,
         name=spec.name,
         source=spec.repo,
         source_url=f"https://huggingface.co/{spec.repo}",
@@ -226,6 +241,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dtypes", default="q8,q4")
     parser.add_argument("--owner", help="Hub user or org (default: the logged-in user)")
     parser.add_argument("--private", action="store_true")
+    parser.add_argument(
+        "--cards-only",
+        action="store_true",
+        help="re-upload README.md only, leaving the (unchanged, multi-GB) graphs alone",
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
@@ -250,7 +270,11 @@ def main(argv: list[str] | None = None) -> int:
 
         (out_dir / "README.md").write_text(build_card(spec, out_dir, repo, dtypes))
         present = [f for f in files if (out_dir / "onnx" / f).exists()]
-        payload = [*METADATA, "README.md", *(f"onnx/{f}" for f in present)]
+        payload = (
+            ["README.md"]
+            if args.cards_only
+            else [*METADATA, "README.md", *(f"onnx/{f}" for f in present)]
+        )
         existing = [p for p in payload if (out_dir / p).exists()]
         total = sum((out_dir / p).stat().st_size for p in existing) / 1e6
 
@@ -265,7 +289,9 @@ def main(argv: list[str] | None = None) -> int:
             repo_id=repo,
             folder_path=str(out_dir),
             allow_patterns=existing,
-            commit_message="Add ONNX export for transformers.js",
+            commit_message=(
+                "Update model card" if args.cards_only else "Add ONNX export for transformers.js"
+            ),
         )
         print(f"[publish] {repo}: https://huggingface.co/{repo}")
     return 0
