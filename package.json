@@ -21,7 +21,8 @@
 		"release": "bun run build && changeset publish",
 		"export:check": "PYTHONPATH=tools/export python3 -m lfm_export.check --out models",
 		"parity": "bun run --filter @lfm-encoder/tasks parity",
-		"bench": "bun run --filter @lfm-encoder/tasks bench"
+		"bench": "bun run --filter @lfm-encoder/tasks bench",
+		"publish:hub": "PYTHONPATH=tools/export python3 -m lfm_export.publish --out models"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.0",
