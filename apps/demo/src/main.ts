@@ -81,6 +81,22 @@ const panels = new Map<TaskName, HTMLElement>([
 const runners = new Map<TaskName, () => void>();
 let active: TaskName = "routing";
 
+/**
+ * Wrap a panel's runner so it does nothing once its tab is no longer showing.
+ *
+ * Panels debounce, so a keystroke can fire its inference *after* the user has
+ * moved on. `latest()` discards the stale result, but the request still reaches
+ * the worker, and the worker keeps exactly one model resident — so a late
+ * routing pass evicts whatever the new tab just loaded and forces a re-download.
+ * That was survivable when every model was one forward pass; with a 424 MB
+ * diffusion checkpoint it is not.
+ */
+function whileActive(task: TaskName, run: () => void): () => void {
+	return () => {
+		if (active === task) run();
+	};
+}
+
 for (const tab of need("tabs").querySelectorAll<HTMLButtonElement>(".tab")) {
 	tab.addEventListener("click", () => {
 		active = tab.dataset.panel as TaskName;
@@ -135,6 +151,7 @@ function setupRouting(): void {
 	);
 
 	const run = debounce(250, () => {
+		if (active !== "routing") return;
 		const body = text.value.trim();
 		const categories = labels.items();
 		if (body === "" || categories.length === 0) {
@@ -192,7 +209,7 @@ function setupRouting(): void {
 	]);
 
 	text.addEventListener("input", run);
-	runners.set("routing", run);
+	runners.set("routing", whileActive("routing", run));
 }
 
 // --------------------------------------------------------------- linting
@@ -219,6 +236,7 @@ function setupLinting(): void {
 	let current: LintData | undefined;
 
 	const run = debounce(250, () => {
+		if (active !== "linting") return;
 		const body = text.value.trim();
 		const policy = rules.items();
 		if (body === "" || policy.length === 0) {
@@ -325,7 +343,7 @@ function setupLinting(): void {
 	]);
 
 	text.addEventListener("input", run);
-	runners.set("linting", run);
+	runners.set("linting", whileActive("linting", run));
 }
 
 // ------------------------------------------------------------- fill-mask
@@ -338,6 +356,7 @@ function setupFillMask(): void {
 	const infer = latest((body: string) => client.fillMask(settings(), body, 5));
 
 	const run = debounce(400, () => {
+		if (active !== "fill-mask") return;
 		const body = text.value.trim();
 		if (!body.includes("<|mask|>")) {
 			replace(output, [el("p", "empty", "Put <|mask|> somewhere in the text.")]);
@@ -384,7 +403,7 @@ function setupFillMask(): void {
 	}
 
 	text.addEventListener("input", run);
-	runners.set("fill-mask", run);
+	runners.set("fill-mask", whileActive("fill-mask", run));
 }
 
 // ------------------------------------------------------------- diffusion
@@ -432,7 +451,12 @@ function setupDiffusion(): void {
 			}),
 		);
 		const filled = frame.tokens.filter((token) => token !== null).length;
-		meta.textContent = `pass ${frame.step} · ${filled}/${frame.tokens.length} slots committed · ${((performance.now() - started) / 1000).toFixed(1)}s`;
+		const elapsed = `${((performance.now() - started) / 1000).toFixed(1)}s`;
+		meta.textContent = `pass ${frame.step} · ${filled}/${frame.tokens.length} slots committed · ${elapsed}`;
+		// A run is tens of forward passes rather than one, so the shared status bar
+		// would otherwise sit on whatever the last *load* said for the whole
+		// generation and look stuck.
+		status(`denoising — pass ${frame.step}, ${filled}/${frame.tokens.length} slots · ${elapsed}`);
 	};
 
 	function run(): void {
@@ -455,7 +479,9 @@ function setupDiffusion(): void {
 			})
 			.then((result) => {
 				replace(answer, [el("p", undefined, result.text || "(empty)")]);
-				meta.textContent = `${result.steps} passes · ${result.promptTokens} prompt tokens · ${result.canvasTokens} on the canvas · ${((performance.now() - started) / 1000).toFixed(1)}s`;
+				const elapsed = `${((performance.now() - started) / 1000).toFixed(1)}s`;
+				meta.textContent = `${result.steps} passes · ${result.promptTokens} prompt tokens · ${result.canvasTokens} on the canvas · ${elapsed}`;
+				status(`answered in ${result.steps} passes · ${elapsed}`);
 			})
 			.catch(reportError)
 			.finally(() => {
