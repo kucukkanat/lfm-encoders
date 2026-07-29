@@ -1,7 +1,7 @@
 {
 	"$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
 	"files": {
-		"includes": ["**", "!**/dist", "!**/models", "!**/node_modules", "!**/*.jsonl"]
+		"includes": ["**", "!**/dist", "!**/models", "!**/node_modules", "!**/.venv", "!**/*.jsonl"]
 	},
 	"formatter": { "enabled": true, "indentStyle": "tab", "lineWidth": 100 },
 	"linter": { "enabled": true, "rules": { "preset": "recommended" } },

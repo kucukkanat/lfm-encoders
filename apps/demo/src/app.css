@@ -429,6 +429,55 @@ select.control {
 	color: var(--color-text-muted);
 }
 
+/* --------------------------------------------------- masked diffusion */
+.controls-row {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+	gap: var(--space-3);
+}
+.control--range {
+	width: 100%;
+	min-height: auto;
+	padding: 0;
+	border: 0;
+	background: none;
+	accent-color: var(--color-accent);
+}
+
+.canvas {
+	min-height: 8rem;
+	padding: var(--space-3);
+	border: var(--border-thin) solid var(--color-border);
+	border-radius: var(--radius-md);
+	background: var(--color-surface);
+	font-family: var(--font-mono);
+	font-size: var(--text-sm);
+	line-height: 2;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+/* Masked slots keep their width so the text does not reflow as it lands. */
+.slot-mask {
+	color: var(--color-text-muted);
+	opacity: var(--opacity-muted);
+}
+.slot-token {
+	border-radius: var(--radius-sm);
+	transition: background-color var(--duration-slow) var(--ease);
+}
+.slot-token--new {
+	background: color-mix(in srgb, var(--color-accent) calc(var(--opacity-wash) * 200%), transparent);
+}
+
+.answer {
+	min-height: 2.5rem;
+	font-size: var(--text-sm);
+	line-height: var(--leading-normal);
+}
+.answer p {
+	margin: 0;
+}
+
 /* -------------------------------------------------------- utilities */
 .meta,
 .note {

@@ -44,6 +44,7 @@
 			<button class="tab" type="button" role="tab" data-panel="routing" aria-controls="panel-routing" aria-selected="true">Prompt routing</button>
 			<button class="tab" type="button" role="tab" data-panel="linting" aria-controls="panel-linting" aria-selected="false">Policy linting</button>
 			<button class="tab" type="button" role="tab" data-panel="fill-mask" aria-controls="panel-fill-mask" aria-selected="false">Fill&#8209;mask</button>
+			<button class="tab" type="button" role="tab" data-panel="diffusion" aria-controls="panel-diffusion" aria-selected="false">Masked diffusion</button>
 		</div>
 
 		<div class="status" id="status" role="status" aria-live="polite">
@@ -175,6 +176,62 @@ The capital of France is &lt;|mask|&gt;.</textarea
 					</div>
 				</div>
 			</section>
+
+			<!-- ----------------------------------------------- masked diffusion -->
+			<section class="panel" id="panel-diffusion" role="tabpanel" data-panel="diffusion" hidden>
+				<div class="panel__intro">
+					<h2>Masked diffusion</h2>
+					<p>
+						The same encoder, fine-tuned to answer questions by <em>denoising</em>. Instead of
+						emitting one token after another, it starts from a canvas of blanks and fills them in
+						over a handful of passes &mdash; keeping only the words it is confident about and
+						re-guessing the rest, now able to see what landed on both sides of them.
+					</p>
+				</div>
+
+				<div class="split">
+					<div class="column">
+						<label class="field">
+							<span class="field__label">Question</span>
+							<textarea id="diffusion-text" class="control control--area" rows="3">
+What is the capital of France?</textarea
+							>
+						</label>
+						<div class="controls-row">
+							<label class="field">
+								<span class="field__label">Answer length <output id="diffusion-length-value">64</output></span>
+								<input id="diffusion-length" class="control control--range" type="range" min="16" max="192" step="16" value="64" />
+							</label>
+							<label class="field">
+								<span class="field__label">Passes <output id="diffusion-steps-value">32</output></span>
+								<input id="diffusion-steps" class="control control--range" type="range" min="8" max="128" step="8" value="32" />
+							</label>
+							<label class="field">
+								<span class="field__label">Temperature <output id="diffusion-temp-value">0.00</output></span>
+								<input id="diffusion-temp" class="control control--range" type="range" min="0" max="1" step="0.05" value="0" />
+							</label>
+						</div>
+						<div class="adder">
+							<button class="button" type="button" id="diffusion-run">Generate</button>
+							<button class="button" type="button" id="diffusion-stop" disabled>Stop</button>
+						</div>
+						<div class="examples" id="diffusion-examples"></div>
+						<p class="note">
+							This panel loads the diffusion checkpoint, a separate 424 MB download. Every pass is
+							a full forward over the canvas, so expect a second or two per pass under WASM.
+						</p>
+					</div>
+					<div class="column">
+						<span class="field__label">Canvas</span>
+						<div id="diffusion-canvas" class="canvas">
+							<p class="empty">Press Generate to watch the answer condense.</p>
+						</div>
+						<span class="field__label">Answer</span>
+						<div id="diffusion-answer" class="answer"></div>
+						<p class="meta" id="diffusion-meta"></p>
+					</div>
+				</div>
+			</section>
 		</main>
 
 		<footer class="colophon">
@@ -184,6 +241,8 @@ The capital of France is &lt;|mask|&gt;.</textarea
 				<a href="https://huggingface.co/LiquidAI/LFM2.5-Encoder-350M-Prompt-Router">Prompt&#8209;Router</a>
 				and
 				<a href="https://huggingface.co/LiquidAI/LFM2.5-Encoder-350M-Policy-Linter">Policy&#8209;Linter</a>
+				and
+				<a href="https://huggingface.co/LiquidAI/LFM2.5-Encoder-350M-Diffusion">Diffusion</a>
 				by Liquid AI, under the LFM Open License v1.0. Running on ONNX Runtime through
 				transformers.js.
 			</p>

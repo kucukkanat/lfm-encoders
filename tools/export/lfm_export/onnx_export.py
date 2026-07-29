@@ -389,6 +389,7 @@ def write_repo_metadata(
     head = spec.head_config(model)
     if head:
         config["head"] = {**head, "proj_dim": model.tok_proj.out_features}
+    config.update(spec.extra_config(model, tokenizer))
 
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "config.json").write_text(json.dumps(config, indent=2) + "\n")

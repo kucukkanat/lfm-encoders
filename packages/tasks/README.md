@@ -1,12 +1,13 @@
 # @lfm-encoder/tasks
 
-Zero-shot prompt routing, policy linting and fill-mask on
+Zero-shot prompt routing, policy linting, fill-mask and masked diffusion on
 [LFM2.5-Encoder-350M](https://huggingface.co/LiquidAI/LFM2.5-Encoder-350M), running fully client-side.
 
-Reproduces Liquid's [prompt-routing](https://huggingface.co/spaces/LiquidAI/prompt-routing) and
-[policy-linting](https://huggingface.co/spaces/LiquidAI/policy-linting) Spaces. Both zero-shot tasks take
-free-text labels supplied at call time — labels are ordinary prose, can change on every call, and nothing
-is trained or cached per label set.
+Reproduces Liquid's [prompt-routing](https://huggingface.co/spaces/LiquidAI/prompt-routing),
+[policy-linting](https://huggingface.co/spaces/LiquidAI/policy-linting) and
+[masked-diffusion](https://huggingface.co/spaces/LiquidAI/masked-diffusion) Spaces. The zero-shot tasks
+take free-text labels supplied at call time — labels are ordinary prose, can change on every call, and
+nothing is trained or cached per label set.
 
 ```bash
 bun add @lfm-encoder/tasks @huggingface/transformers
@@ -247,6 +248,82 @@ distribution rather than the argmax.
 | `MaskSlot` | `{ position: number; predictions: readonly MaskPrediction[] }` |
 | `FillMask` | `{ model: EncoderModel; maskToken: string; predict(...); dispose() }` |
 
+## `loadDiffuser`
+
+```ts
+loadDiffuser(options?: LoadOptions): Promise<Diffuser>
+generate(prompt: string, options?: DiffusionOptions): Promise<DiffusionResult>
+```
+
+The same encoder, fine-tuned to answer questions by **denoising**. It is not a decoder and emits no token
+stream. Generation starts from a *canvas* — the prompt followed by `maxNewTokens` copies of `<|mask|>` —
+and every pass predicts all of the still-masked positions at once, committing only the most confident of
+them. The rest stay masked and are re-predicted next pass, now conditioned on what was just written to
+their **right** as well as their left, which is the part a causal decoder cannot do.
+
+```ts
+import { loadDiffuser } from "@lfm-encoder/tasks";
+
+const diffuser = await loadDiffuser({ modelRoot: "./models" });
+
+const answer = await diffuser.generate("What is the capital of France?", {
+	maxNewTokens: 32,
+	steps: 16,
+	onFrame: ({ step, tokens }) => {
+		// tokens[i] is null while slot i is still masked — render it as a blank to
+		// watch the answer condense rather than stream.
+		console.log(step, tokens.map((t) => t ?? "▁").join(""));
+	},
+});
+
+answer.text;  // "The capital of France is Paris."
+answer.steps; // 8 — fewer than the 16 budgeted: `tau` let confident blocks finish early
+await diffuser.dispose();
+```
+
+Every option defaults to the value the exporter recorded in `config.json`, so the shipped schedule is the
+one Liquid's Space uses:
+
+| Option | Default | What it does |
+| --- | --: | --- |
+| `maxNewTokens` | 64 | Size of the canvas. Generation cannot exceed it — this is a hard cap, not a hint. |
+| `steps` | 32 | Total denoising passes, split evenly across the blocks. |
+| `blockSize` | 16 | Width of the left-to-right window unmasking is confined to. |
+| `temperature` | 0 | 0 is greedy; higher samples via Gumbel noise on the logits. |
+| `tau` | 0.9 | Confidence at which a token is committed ahead of the step budget. |
+| `system` | — | Optional system turn, rendered into the `[SYS]` block. |
+| `onFrame` | — | Called after every pass, including the initial all-masked frame. |
+| `signal` | — | Checked between passes; `{ aborted: true }` stops early and returns what exists. |
+
+Three details make the output prose rather than mush:
+
+- **Blocks.** Without the sweeping window the model commits scattered high-confidence tokens across the
+  whole canvas — punctuation and stopwords — and then has to write sentences around them.
+- **Adjacency.** Two neighbouring positions are never committed in the same pass. Each was predicted while
+  the other was still a mask, so both are individually likely and jointly often not ("the the").
+- **`tau` shortens the run.** A block whose predictions all clear `tau` finishes in one pass, which is why
+  `steps` is a budget rather than a count. The example above answers in 8 of 16.
+
+`onFrame` fires synchronously between passes and the whole loop is `await`ed, so in a browser run it in a
+worker — each pass is a full forward and will otherwise freeze the page for seconds at a time.
+
+Unlike the reference implementation, this one has no K/V or shortconv cache to recompute only the active
+block against: the exported graph takes `input_ids` + `attention_mask` and nothing else, so each pass
+re-runs the full canvas. That is exact and simpler, at a constant factor more compute.
+
+Use `fp32` if you want the reference answer exactly — it is token-identical to PyTorch. `q8` paraphrases:
+it answers the question, but roughly a sixth of its tokens differ. `q4` is not published for this
+checkpoint at all; see the [accuracy notes](../../README.md#accuracy-and-speed).
+
+| Type | Shape |
+| --- | --- |
+| `DiffusionFrame` | `{ step: number; tokens: readonly (string \| null)[]; revealed: readonly number[] }` |
+| `DiffusionResult` | `{ text: string; steps: number; promptTokens: number; canvasTokens: number }` |
+| `Diffuser` | `{ model: EncoderModel; generate(...); dispose() }` |
+
+`renderChatPrompt` and `trimAnswer` are exported too, for reproducing the prompt layout or the answer
+trimming outside the loop.
+
 ## Constants
 
 | Constant | Value |
@@ -254,6 +331,7 @@ distribution rather than the argmax.
 | `PROMPT_ROUTER_MODEL` | `"LFM2.5-Encoder-350M-Prompt-Router-ONNX"` |
 | `POLICY_LINTER_MODEL` | `"LFM2.5-Encoder-350M-Policy-Linter-ONNX"` |
 | `ENCODER_MODEL` | `"LFM2.5-Encoder-350M-ONNX"` |
+| `DIFFUSION_MODEL` | `"LFM2.5-Encoder-350M-Diffusion-ONNX"` |
 | `DEFAULT_THRESHOLD` | `0.5` |
 
 Repo ids are resolved relative to `modelRoot`, so these are the directory names `bun run export` writes.

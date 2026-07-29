@@ -8,8 +8,12 @@
  */
 import type { Device, Dtype } from "@lfm-encoder/core";
 import {
+	type Diffuser,
+	type DiffusionFrame,
+	type DiffusionResult,
 	type FillMask,
 	type LintResult,
+	loadDiffuser,
 	loadFillMask,
 	loadPolicyLinter,
 	loadPromptRouter,
@@ -18,7 +22,7 @@ import {
 	type RouteResult,
 } from "@lfm-encoder/tasks";
 
-export type TaskName = "routing" | "linting" | "fill-mask";
+export type TaskName = "routing" | "linting" | "fill-mask" | "diffusion";
 
 export interface Settings {
 	readonly dtype: Dtype;
@@ -29,15 +33,28 @@ export type Request =
 	| { id: number; kind: "preload"; task: TaskName; settings: Settings }
 	| { id: number; kind: "route"; settings: Settings; text: string; labels: string[] }
 	| { id: number; kind: "lint"; settings: Settings; text: string; rules: string[] }
-	| { id: number; kind: "fill-mask"; settings: Settings; text: string; topK: number };
+	| { id: number; kind: "fill-mask"; settings: Settings; text: string; topK: number }
+	| {
+			id: number;
+			kind: "diffuse";
+			settings: Settings;
+			prompt: string;
+			maxNewTokens: number;
+			steps: number;
+			temperature: number;
+	  }
+	| { id: number; kind: "cancel" };
 
 export type Response =
 	| { id: number; status: "ok"; result: unknown; elapsedMs: number }
 	| { id: number; status: "error"; message: string }
 	| { id: number; status: "loading"; task: TaskName; file: string; fraction: number | undefined }
-	| { id: number; status: "ready"; task: TaskName; loadMs: number };
+	| { id: number; status: "ready"; task: TaskName; loadMs: number }
+	// Diffusion is the one task with something to show *during* the run: each
+	// denoising pass is a frame, and the request only resolves at the end.
+	| { id: number; status: "frame"; frame: DiffusionFrame };
 
-type Loaded = PromptRouter | PolicyLinter | FillMask;
+type Loaded = PromptRouter | PolicyLinter | FillMask | Diffuser;
 
 /**
  * Where weights come from.
@@ -56,7 +73,16 @@ const loaders: Record<
 	routing: loadPromptRouter,
 	linting: loadPolicyLinter,
 	"fill-mask": loadFillMask,
+	diffusion: loadDiffuser,
 };
+
+/**
+ * Set while a generation is running, so a `cancel` request can stop it.
+ *
+ * Diffusion holds the queue for tens of seconds; without an out-of-band stop
+ * the user cannot switch tabs or change precision until it finishes.
+ */
+let cancelled = false;
 
 /**
  * Exactly one model stays resident.
@@ -128,17 +154,34 @@ async function handle(request: Request): Promise<unknown> {
 		}
 		case "fill-mask":
 			return (model as FillMask).predict(request.text, { topK: request.topK });
+		case "diffuse": {
+			cancelled = false;
+			const result: DiffusionResult = await (model as Diffuser).generate(request.prompt, {
+				maxNewTokens: request.maxNewTokens,
+				steps: request.steps,
+				temperature: request.temperature,
+				onFrame: (frame) => post({ id: request.id, status: "frame", frame }),
+				get signal() {
+					return { aborted: cancelled };
+				},
+			});
+			return result;
+		}
+		case "cancel":
+			return null;
 	}
 }
 
 function taskFor(request: Request): TaskName {
 	return request.kind === "preload"
 		? request.task
-		: request.kind === "route"
-			? "routing"
-			: request.kind === "lint"
-				? "linting"
-				: "fill-mask";
+		: request.kind === "diffuse"
+			? "diffusion"
+			: request.kind === "route"
+				? "routing"
+				: request.kind === "lint"
+					? "linting"
+					: "fill-mask";
 }
 
 /**
@@ -172,6 +215,13 @@ async function respond(request: Request): Promise<void> {
 }
 
 self.addEventListener("message", (event: MessageEvent<Request>) => {
+	// Cancellation must not be queued: the run it is meant to interrupt is what
+	// is holding the queue.
+	if (event.data.kind === "cancel") {
+		cancelled = true;
+		post({ id: event.data.id, status: "ok", result: null, elapsedMs: 0 });
+		return;
+	}
 	// `respond` never rejects, so the chain cannot be poisoned by one bad request.
 	queue = queue.then(() => respond(event.data));
 });

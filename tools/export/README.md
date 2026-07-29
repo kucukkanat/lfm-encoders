@@ -218,6 +218,31 @@ Two-tower repos (router, linter):
 
 The base encoder's is the same idea with `mask_position` and a `top_k` list of `{id, token, prob}`.
 
+The diffusion repo's is different in kind, because per-logit error is the wrong question for a decode
+loop — error that never moves an argmax is free, and error that does is compounded by every later pass.
+So the check *decodes* each prompt greedily with fp32 PyTorch and with every ONNX variant, and reports how
+many generated **tokens** differ:
+
+```jsonc
+{
+	"task": "masked-diffusion",
+	"diffusion": { "mask_token_id": 16, "block_size": 16, "tau": 0.9, "template": { … } },
+	"cases": [{
+		"prompt": "What is the capital of France?",
+		"rendered": "[Question]\nWhat is the capital of France?\n[/Question]\n\n[Answer]\n",
+		"input_ids": [1, 2263, 8598, …],
+		"max_new": 32, "steps": 16, "block_size": 16,
+		"reference_ids": [504, 5940, 432, …],
+		"reference_text": "The capital of France is Paris.\n[/Answer]\n\n"
+	}]
+}
+```
+
+`check.diffuse` is a deliberately literal transcription of `packages/tasks/src/diffusion.ts`, so a
+disagreement between them is a disagreement about the *weights* rather than about the schedule. The TS
+integration test then asserts the stronger claim in the other direction: at fp32 the JavaScript loop
+reproduces `reference_ids` exactly.
+
 `offsets` is the load-bearing field. transformers.js has no `return_offsets_mapping`, so
 `@lfm-encoder/core` reconstructs character offsets from token byte lengths; freezing HuggingFace's own
 offsets here is the only thing that catches a drift in that reconstruction — no Python-side check could see
@@ -233,16 +258,23 @@ Consumed by:
 Both skip themselves when `fixtures.json` is absent, so a checkout without weights still runs green. The
 model root comes from `LFM_MODEL_ROOT`, defaulting to `./models`.
 
-The cases live in `lfm_export/parity.py` (`ROUTING_CASES`, `LINTING_CASES`, `MLM_CASES`) and deliberately
+The cases live in `lfm_export/parity.py` (`ROUTING_CASES`, `LINTING_CASES`, `MLM_CASES`) and
+`lfm_export/check.py` (`DIFFUSION_CASES`), and deliberately
 include non-ASCII text — German, French, Spanish — because that is where a byte-offset reconstruction
 breaks if it is wrong.
 
 ## Adding a model
 
 `lfm_export/spec.py` is the registry. A `ModelSpec` is a source repo, an auto-class, a graph wrapper from
-`lfm_export/graphs.py`, and a `head_config` callable that pulls the head's scalars out of the loaded
-PyTorch model into `config.json`. Adding a fourth LFM2.5 head means one `ModelSpec` and, if the head is not
-a two-tower cosine/dot, one `nn.Module` wrapper whose `forward` returns per-token tensors.
+`lfm_export/graphs.py`, a `head_config` callable that pulls the head's scalars out of the loaded PyTorch
+model into `config.json`, and an `extra_config` callable for anything a consumer needs that is not
+derivable from the graph. Adding another LFM2.5 head means one `ModelSpec` and, if the head is not a
+two-tower cosine/dot, one `nn.Module` wrapper whose `forward` returns per-token tensors.
+
+The diffusion checkpoint is the case where `extra_config` earns its keep: it reuses `MaskedLmGraph`
+unchanged — architecturally it *is* the base encoder — and everything that makes it a chatbot is the
+decode schedule and prompt template written into `config.json` under `diffusion`. Recording them with the
+weights is what keeps the loop from being hard-coded on the JavaScript side.
 
 Keep the wrappers returning *per-token* projections rather than pooled scores. That is what keeps one
 static ONNX file usable for any zero-shot label set, and it is exact — both towers are affine and

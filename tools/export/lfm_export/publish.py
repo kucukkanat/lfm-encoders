@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 from .onnx_export import DTYPE_FILES
-from .spec import SPECS, ModelSpec
+from .spec import BY_NAME, SPECS, ModelSpec
 
 # Always shipped alongside the graphs: transformers.js reads these from the repo root.
 METADATA = ("config.json", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json")
@@ -132,7 +132,46 @@ BLURBS = {
         "A zero-shot policy linter. Rules are ordinary prose supplied at call time. One pass scores every\n"
         "token against every rule, so adding a rule costs a few tokens rather than another model.",
     ),
+    "masked-diffusion": (
+        "A diffusion language model. It is not a decoder and emits no token stream: generation starts from\n"
+        "a canvas of `<|mask|>` tokens and *denoises* it, committing only the most confident predictions\n"
+        "each pass and re-guessing the rest with full sight of what landed on either side of them.",
+    ),
 }
+
+EXTRA_DIFFUSION = """### Generating
+
+The graph is a plain masked-LM forward; what makes it a chatbot is the loop around it, and the loop's
+schedule ships in `config.json` under `diffusion` so consumers do not have to hard-code it:
+
+```
+[Question]
+<your question>
+[/Question]
+
+[Answer]
+<max_new_tokens copies of <|mask|>>
+```
+
+Each pass predicts every still-masked position, and the scheduler commits a subset:
+
+1. **Blocks.** Unmasking is confined to a `block_size` window sweeping left to right. Without it the
+   model scatters confident punctuation across the whole canvas and then has to write prose around it.
+2. **Confidence.** Within the block, candidates are ranked by softmax probability. Anything above `tau`
+   is committed immediately; otherwise just enough are taken to keep the block inside its step budget.
+3. **Adjacency.** Two neighbouring positions are never committed in the same pass — each was predicted
+   while the other was still masked, so both are individually likely and jointly often not.
+
+Ids at or above `real_vocab_size` are alignment padding and must be excluded from the argmax *and* the
+softmax denominator.
+
+[`@lfm-encoder/tasks`](https://github.com/kucukkanat/lfm-encoders) implements the whole loop, including
+frame-by-frame callbacks for animating the denoising.
+
+The reference implementation caches K/V and shortconv state so later passes recompute only the active
+block. This export has no cache inputs and re-runs the full canvas each pass instead — exact, simpler,
+and a constant factor more compute.
+"""
 
 EXTRA_TWO_TOWER = """### Prompt format
 
@@ -181,6 +220,21 @@ ACCURACY = {
         "| `q8` | 0.5241 | 0.2328 | 3 |\n"
         "| `q4` | 0.3698 | 0.1818 | 3 |"
     ),
+    "masked-diffusion": (
+        "Per-logit error is the wrong metric for a generative loop — error that never moves an argmax is\n"
+        "free, and error that does is compounded by every later pass. So this is measured by decoding the\n"
+        "same prompts greedily with each dtype and counting *generated tokens* that differ from the fp32\n"
+        "PyTorch decode (3 prompts, 32-token canvas, 16 passes).\n\n"
+        "| dtype | differing tokens | mean fraction |\n"
+        "| --- | --: | --: |\n"
+        "| `fp32` | 0 | 0.000 |\n"
+        "| `q8` | 16 | 0.167 |\n\n"
+        "`fp32` is token-identical to PyTorch. `q8` paraphrases rather than degrades — it still answers\n"
+        "the question — but it is not the same token stream.\n\n"
+        "`q4` is **not published**: it fails the export's own cosine-similarity gate against fp32 (0.85,\n"
+        "threshold 0.90). A one-shot encoder can absorb that; a loop that conditions each pass on the last\n"
+        "cannot."
+    ),
 }
 
 RAW = "https://raw.githubusercontent.com/kucukkanat/lfm-encoders/main/docs/screenshots"
@@ -189,12 +243,14 @@ SCREENSHOTS = {
     "fill-mask": ("fill-mask.png", "Fill-mask running in the browser"),
     "zero-shot-routing": ("prompt-routing.png", "Zero-shot prompt routing in the browser"),
     "zero-shot-token-matching": ("policy-linting.png", "Zero-shot policy linting in the browser"),
+    "masked-diffusion": ("masked-diffusion.png", "Masked diffusion running in the browser"),
 }
 
 PIPELINE = {
     "fill-mask": "fill-mask",
     "zero-shot-routing": "zero-shot-classification",
     "zero-shot-token-matching": "token-classification",
+    "masked-diffusion": "text-generation",
 }
 
 
@@ -208,7 +264,7 @@ def build_card(spec: ModelSpec, out_dir: Path, repo: str, dtypes: tuple[str, ...
             rows.append(f"| `{dtype}` | `onnx/{path.name}` | {path.stat().st_size / 1e6:.0f} MB |")
 
     outputs = " and ".join(f"`{name}`" for name in config["onnx"]["outputs"])
-    extra = ""
+    extra = EXTRA_DIFFUSION if spec.task == "masked-diffusion" else ""
     if head:
         scoring = (
             "cosine between the L2-normalised pooled towers, scaled by a learned temperature, "
@@ -239,6 +295,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="lfm_export.publish", description=__doc__)
     parser.add_argument("--out", type=Path, default=Path("models"))
     parser.add_argument("--dtypes", default="q8,q4")
+    parser.add_argument(
+        "--only", action="append", choices=sorted(BY_NAME), help="publish just this checkpoint"
+    )
     parser.add_argument("--owner", help="Hub user or org (default: the logged-in user)")
     parser.add_argument("--private", action="store_true")
     parser.add_argument(
@@ -261,7 +320,8 @@ def main(argv: list[str] | None = None) -> int:
     dtypes = tuple(d.strip() for d in args.dtypes.split(",") if d.strip())
     files = [DTYPE_FILES[d] for d in dtypes]
 
-    for spec in SPECS:
+    specs = [BY_NAME[n] for n in args.only] if args.only else list(SPECS)
+    for spec in specs:
         out_dir = args.out / spec.hub_id
         repo = f"{owner}/{spec.name}"
         if not (out_dir / "config.json").exists():

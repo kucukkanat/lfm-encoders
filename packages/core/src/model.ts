@@ -6,7 +6,14 @@ import {
 	Tensor,
 } from "@huggingface/transformers";
 import { tokenizeWithSpans } from "./offsets.js";
-import type { Dtype, LoadOptions, Matrix, ModelConfig, Tokenized } from "./types.js";
+import type {
+	DiffusionConfig,
+	Dtype,
+	LoadOptions,
+	Matrix,
+	ModelConfig,
+	Tokenized,
+} from "./types.js";
 
 /** A loaded encoder: tokenizer, ONNX session, and the metadata tying them together. */
 export interface EncoderModel {
@@ -18,6 +25,14 @@ export interface EncoderModel {
 	tokenize(text: string): Tokenized;
 	/** One bidirectional forward pass. Keys are the graph's output names. */
 	forward(tokenized: Tokenized): Promise<Readonly<Record<string, Matrix>>>;
+	/**
+	 * The same pass over ids that never came from `tokenize`.
+	 *
+	 * Masked diffusion builds its own canvas — prompt ids followed by a run of
+	 * `<|mask|>` — and rewrites it in place between passes, so there is no source
+	 * string to anchor spans to.
+	 */
+	forwardIds(ids: ArrayLike<number>): Promise<Readonly<Record<string, Matrix>>>;
 	dispose(): Promise<void>;
 }
 
@@ -73,27 +88,32 @@ export async function loadEncoderModel(
 		config,
 		tokenizer,
 		tokenize: (text) => tokenizeWithSpans(tokenizer, text),
-		forward: async (tokenized) => {
-			const ids = BigInt64Array.from(tokenized.ids, BigInt);
-			const dims = [1, tokenized.ids.length];
-			const outputs = await model({
-				input_ids: new Tensor("int64", ids, dims),
-				attention_mask: new Tensor("int64", new BigInt64Array(ids.length).fill(1n), dims),
-			});
-			return Object.fromEntries(
-				config.outputs.map((name) => {
-					const tensor = outputs[name];
-					if (tensor === undefined) {
-						throw new Error(`model '${id}' produced no output named '${name}'`);
-					}
-					return [name, toMatrix(tensor)];
-				}),
-			);
-		},
+		forward: (tokenized) => run(tokenized.ids),
+		forwardIds: (ids) => run(ids),
 		dispose: async () => {
 			await model.dispose();
 		},
 	};
+
+	async function run(source: ArrayLike<number>): Promise<Readonly<Record<string, Matrix>>> {
+		const ids = BigInt64Array.from({ length: source.length }, (_, i) =>
+			BigInt(source[i] as number),
+		);
+		const dims = [1, ids.length];
+		const outputs = await model({
+			input_ids: new Tensor("int64", ids, dims),
+			attention_mask: new Tensor("int64", new BigInt64Array(ids.length).fill(1n), dims),
+		});
+		return Object.fromEntries(
+			config.outputs.map((name) => {
+				const tensor = outputs[name];
+				if (tensor === undefined) {
+					throw new Error(`model '${id}' produced no output named '${name}'`);
+				}
+				return [name, toMatrix(tensor)];
+			}),
+		);
+	}
 }
 
 /**
@@ -115,6 +135,7 @@ function applyModelRoot(modelRoot: string | undefined): void {
 function readConfig(raw: Record<string, unknown>): ModelConfig {
 	const onnx = (raw.onnx ?? {}) as { outputs?: string[] };
 	const head = raw.head as Record<string, unknown> | undefined;
+	const diffusion = raw.diffusion as Record<string, unknown> | undefined;
 	return {
 		task: String(raw.task ?? "unknown"),
 		sourceModel: String(raw.source_model ?? ""),
@@ -134,6 +155,21 @@ function readConfig(raw: Record<string, unknown>): ModelConfig {
 						activation: head.activation as "softmax" | "sigmoid",
 						prefixHeading: String(head.prefix_heading),
 						projDim: Number(head.proj_dim),
+					},
+				}),
+		// Only the diffusion checkpoint carries a decode schedule.
+		...(diffusion === undefined
+			? {}
+			: {
+					diffusion: {
+						maskTokenId: Number(diffusion.mask_token_id),
+						maskToken: String(diffusion.mask_token),
+						maxNewTokens: Number(diffusion.max_new_tokens),
+						steps: Number(diffusion.steps),
+						blockSize: Number(diffusion.block_size),
+						temperature: Number(diffusion.temperature),
+						tau: Number(diffusion.tau),
+						template: diffusion.template as DiffusionConfig["template"],
 					},
 				}),
 	};

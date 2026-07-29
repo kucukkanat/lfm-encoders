@@ -76,6 +76,7 @@ const panels = new Map<TaskName, HTMLElement>([
 	["routing", need("panel-routing")],
 	["linting", need("panel-linting")],
 	["fill-mask", need("panel-fill-mask")],
+	["diffusion", need("panel-diffusion")],
 ]);
 const runners = new Map<TaskName, () => void>();
 let active: TaskName = "routing";
@@ -87,9 +88,25 @@ for (const tab of need("tabs").querySelectorAll<HTMLButtonElement>(".tab")) {
 			other.setAttribute("aria-selected", String(other === tab));
 		}
 		for (const [name, panel] of panels) panel.hidden = name !== active;
+		restrictPrecision();
 		runners.get(active)?.();
 	});
 }
+
+/**
+ * `q4` is not published for the diffusion checkpoint — it fails the exporter's
+ * parity gate, because a loop that conditions each pass on the last cannot
+ * absorb the drift a one-shot encoder can. Offering it here would produce a 404
+ * on a file that was deliberately never uploaded, so the option is disabled
+ * rather than left to fail at load time.
+ */
+function restrictPrecision(): void {
+	const option = dtypeSelect.querySelector<HTMLOptionElement>('option[value="q4"]');
+	if (!option) return;
+	option.disabled = active === "diffusion";
+	if (option.disabled && dtypeSelect.value === "q4") dtypeSelect.value = "q8";
+}
+restrictPrecision();
 
 // Switching precision or backend invalidates whatever is on screen, so re-run.
 for (const select of [dtypeSelect, deviceSelect]) {
@@ -370,7 +387,109 @@ function setupFillMask(): void {
 	runners.set("fill-mask", run);
 }
 
+// ------------------------------------------------------------- diffusion
+
+function setupDiffusion(): void {
+	const text = need<HTMLTextAreaElement>("diffusion-text");
+	const canvas = need("diffusion-canvas");
+	const answer = need("diffusion-answer");
+	const meta = need("diffusion-meta");
+	const runButton = need<HTMLButtonElement>("diffusion-run");
+	const stopButton = need<HTMLButtonElement>("diffusion-stop");
+
+	const sliders = [
+		["diffusion-length", "diffusion-length-value", (v: number) => String(v)],
+		["diffusion-steps", "diffusion-steps-value", (v: number) => String(v)],
+		["diffusion-temp", "diffusion-temp-value", (v: number) => v.toFixed(2)],
+	] as const;
+	for (const [input, output, format] of sliders) {
+		const slider = need<HTMLInputElement>(input);
+		const label = need<HTMLOutputElement>(output);
+		slider.addEventListener("input", () => {
+			label.textContent = format(Number(slider.value));
+		});
+	}
+
+	let running = false;
+	let started = 0;
+
+	/**
+	 * Draw the canvas.
+	 *
+	 * Slots still masked are drawn as placeholders rather than omitted, so the
+	 * answer's final length is visible from the first frame and tokens do not
+	 * jump around as they land — the whole point of showing the process.
+	 */
+	client.onFrame = (frame) => {
+		const fresh = new Set(frame.revealed);
+		replace(
+			canvas,
+			frame.tokens.map((token, index) => {
+				if (token === null) return el("span", "slot-mask", "▁");
+				const node = el("span", fresh.has(index) ? "slot-token slot-token--new" : "slot-token");
+				node.textContent = token;
+				return node;
+			}),
+		);
+		const filled = frame.tokens.filter((token) => token !== null).length;
+		meta.textContent = `pass ${frame.step} · ${filled}/${frame.tokens.length} slots committed · ${((performance.now() - started) / 1000).toFixed(1)}s`;
+	};
+
+	function run(): void {
+		if (running) return;
+		const prompt = text.value.trim();
+		if (prompt === "") {
+			replace(canvas, [el("p", "empty", "Ask something first.")]);
+			return;
+		}
+		running = true;
+		started = performance.now();
+		runButton.disabled = true;
+		stopButton.disabled = false;
+		replace(answer, []);
+		client
+			.diffuse(settings(), prompt, {
+				maxNewTokens: Number(need<HTMLInputElement>("diffusion-length").value),
+				steps: Number(need<HTMLInputElement>("diffusion-steps").value),
+				temperature: Number(need<HTMLInputElement>("diffusion-temp").value),
+			})
+			.then((result) => {
+				replace(answer, [el("p", undefined, result.text || "(empty)")]);
+				meta.textContent = `${result.steps} passes · ${result.promptTokens} prompt tokens · ${result.canvasTokens} on the canvas · ${((performance.now() - started) / 1000).toFixed(1)}s`;
+			})
+			.catch(reportError)
+			.finally(() => {
+				running = false;
+				runButton.disabled = false;
+				stopButton.disabled = true;
+			});
+	}
+
+	runButton.addEventListener("click", run);
+	stopButton.addEventListener("click", () => {
+		void client.cancel();
+	});
+
+	examples(need("diffusion-examples"), [
+		{ label: "Haiku", apply: () => set("Write a haiku about the ocean at dawn.") },
+		{ label: "Arithmetic", apply: () => set("What is 84 * 3 / 2?") },
+		{ label: "Explain something", apply: () => set("Explain quantum computing in simple terms.") },
+	]);
+
+	function set(value: string): void {
+		text.value = value;
+	}
+
+	// Unlike the other panels this one never runs on its own: a generation is
+	// tens of forward passes, which is not something to start on a keystroke or
+	// on a tab switch.
+	runners.set("diffusion", () => {
+		client.preload("diffusion", settings()).catch(reportError);
+	});
+}
+
 setupRouting();
 setupLinting();
 setupFillMask();
+setupDiffusion();
 runners.get(active)?.();

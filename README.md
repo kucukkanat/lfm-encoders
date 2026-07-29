@@ -3,12 +3,15 @@
 [LFM2.5-Encoder-350M](https://huggingface.co/LiquidAI/LFM2.5-Encoder-350M) — Liquid AI's bidirectional
 encoder — traced to ONNX, quantized, and run entirely client-side through
 [transformers.js](https://github.com/huggingface/transformers.js). No inference server, no API key: the
-weights are fetched once, cached by the browser, and every forward pass happens in the tab. Two of Liquid's
-demos are reproduced here as worked examples — zero-shot
+weights are fetched once, cached by the browser, and every forward pass happens in the tab. Three of
+Liquid's demos are reproduced here as worked examples — zero-shot
 [prompt routing](https://huggingface.co/spaces/LiquidAI/prompt-routing) (score one text against free-text
-categories) and [policy linting](https://huggingface.co/spaces/LiquidAI/policy-linting) (score every word
-against free-text rules) — plus fill-mask on the base encoder. Both zero-shot tasks take arbitrary labels
-supplied at call time; nothing is trained, fine-tuned or cached per label set.
+categories), [policy linting](https://huggingface.co/spaces/LiquidAI/policy-linting) (score every word
+against free-text rules) and
+[masked diffusion](https://huggingface.co/spaces/LiquidAI/masked-diffusion) (generate text by denoising a
+canvas of blanks instead of emitting a token stream) — plus fill-mask on the base encoder. The zero-shot
+tasks take arbitrary labels supplied at call time; nothing is trained, fine-tuned or cached per label set.
+Liquid's own diffusion space runs on a server CPU; this one runs in the tab.
 
 ## Live demo
 
@@ -26,6 +29,11 @@ trained per label set.
 
 Every word scored against every rule, also in one pass. The threshold slider re-filters without
 re-running the model.
+
+[![Masked diffusion](docs/screenshots/masked-diffusion.png)](https://kucukkanat.github.io/lfm-encoders/)
+
+Generation as denoising: the answer starts as a canvas of `<|mask|>` tokens and condenses over a handful
+of passes, each one keeping only what the model is confident about.
 
 <details>
 <summary>Fill-mask on the base encoder</summary>
@@ -87,6 +95,11 @@ In the browser, `modelRoot` is a URL prefix instead of a path (`"/models"`). A l
 | [`kucukkanat/LFM2.5-Encoder-350M-ONNX`](https://huggingface.co/kucukkanat/LFM2.5-Encoder-350M-ONNX) | fill-mask / embeddings | 424 MB | 490 MB |
 | [`kucukkanat/LFM2.5-Encoder-350M-Prompt-Router-ONNX`](https://huggingface.co/kucukkanat/LFM2.5-Encoder-350M-Prompt-Router-ONNX) | zero-shot routing | 357 MB | 448 MB |
 | [`kucukkanat/LFM2.5-Encoder-350M-Policy-Linter-ONNX`](https://huggingface.co/kucukkanat/LFM2.5-Encoder-350M-Policy-Linter-ONNX) | zero-shot token matching | 357 MB | 448 MB |
+| [`kucukkanat/LFM2.5-Encoder-350M-Diffusion-ONNX`](https://huggingface.co/kucukkanat/LFM2.5-Encoder-350M-Diffusion-ONNX) | masked diffusion | 424 MB | — |
+
+`q4` is not published for the diffusion checkpoint: it fails the exporter's cosine-similarity gate against
+fp32 (0.85 against a 0.90 threshold). A one-shot encoder absorbs that much drift; a decode loop that
+conditions every pass on the last one does not.
 
 Re-exports of Liquid AI's originals under the same
 [LFM Open License v1.0](https://huggingface.co/LiquidAI/LFM2.5-Encoder-350M/blob/main/LICENSE); weights
@@ -97,14 +110,14 @@ are unchanged apart from quantization.
 | Path | What |
 | --- | --- |
 | `packages/core` | Model loading, tokenization with character offsets, span pooling, prompt construction. [README](packages/core/README.md) |
-| `packages/tasks` | The three task wrappers: prompt router, policy linter, fill-mask. [README](packages/tasks/README.md) |
+| `packages/tasks` | The four task wrappers: prompt router, policy linter, fill-mask, masked diffusion. [README](packages/tasks/README.md) |
 | `apps/demo` | Vite app. Serves `models/` off disk via a dev-server middleware so nothing is copied into a bundle. |
 | `tools/export` | The Python exporter: Torch → ONNX → quantized ONNX, plus the parity harness. [README](tools/export/README.md) |
 | `models/` | Export output. Gitignored — it is a build artifact measured in gigabytes. |
 
 ## Model sizes
 
-Three repos come out of the exporter. All of them take `input_ids` + `attention_mask` and are dynamic in
+Four repos come out of the exporter. All of them take `input_ids` + `attention_mask` and are dynamic in
 batch and sequence.
 
 | Repo | Outputs | Task |
@@ -112,12 +125,13 @@ batch and sequence.
 | `LFM2.5-Encoder-350M-ONNX` | `logits`, `last_hidden_state` | fill-mask / embeddings |
 | `LFM2.5-Encoder-350M-Prompt-Router-ONNX` | `token_proj`, `rule_proj` | zero-shot routing (cosine head) |
 | `LFM2.5-Encoder-350M-Policy-Linter-ONNX` | `token_proj`, `rule_proj` | zero-shot token matching (dot head) |
+| `LFM2.5-Encoder-350M-Diffusion-ONNX` | `logits`, `last_hidden_state` | masked diffusion (no head; the loop is the task) |
 
-| dtype | File | Base encoder | Router | Linter |
-| --- | --- | --: | --: | --: |
-| `fp32` | `onnx/model.onnx` | 1687 MB | 1420 MB | 1420 MB |
-| `q8` | `onnx/model_quantized.onnx` | 424 MB | 357 MB | 357 MB |
-| `q4` | `onnx/model_q4.onnx` | 490 MB | 448 MB | 448 MB |
+| dtype | File | Base encoder | Router | Linter | Diffusion |
+| --- | --- | --: | --: | --: | --: |
+| `fp32` | `onnx/model.onnx` | 1687 MB | 1420 MB | 1420 MB | 1687 MB |
+| `q8` | `onnx/model_quantized.onnx` | 424 MB | 357 MB | 357 MB | 424 MB |
+| `q4` | `onnx/model_q4.onnx` | 490 MB | 448 MB | 448 MB | not shipped |
 
 ## Accuracy and speed
 
@@ -137,6 +151,20 @@ builds with different kernels, and a browser's numbers have to be measured where
 | Policy-Linter | max Δ | 8.4e-4 | 0.5241 | 0.3698 |
 | | mean Δ | 3.4e-4 | 0.2328 | 0.1818 |
 | | disagreements (threshold, 6 cases) | 0 | 3 | 3 |
+
+Masked diffusion is measured differently, because per-logit error is the wrong question for a generative
+loop: error that never moves an argmax is free, and error that does is compounded by every later pass
+conditioning on the wrong token. So the same prompts are decoded greedily with each dtype and compared to
+the fp32 PyTorch decode, token for token (3 prompts, 32-token canvas, 16 passes):
+
+| Model | Metric | `fp32` | `q8` |
+| --- | --- | --: | --: |
+| Diffusion | differing generated tokens | 0 | 16 |
+| | mean fraction of the answer | 0.000 | 0.167 |
+
+`fp32` ONNX is **token-identical** to PyTorch, which is a stronger statement than any Δ in the table above
+and the reason the decode loop can be trusted. `q8` paraphrases rather than degrades — it still answers the
+question correctly — but it is not the same token stream.
 
 Speed is measured by `bun run bench` — median router forward pass, onnxruntime CPU, M-series Mac:
 
@@ -258,11 +286,54 @@ W @ mean(h_i) + b  ==  mean(W @ h_i + b)
 work for any label set: the graph never has to know how many rules there are, and no `(batch, rules, seq)`
 pooling matrix has to be built and uploaded from JS on every call.
 
+## How masked diffusion works
+
+The diffusion checkpoint is architecturally *the same graph* as the base encoder — `input_ids` +
+`attention_mask` in, `logits` out, no head, no cache. What makes it a chatbot is the loop wrapped around
+it, which is implemented in TypeScript rather than baked into the ONNX file.
+
+Generation starts from a **canvas**: the prompt, laid out in the template the diffusion-SFT run used,
+followed by `maxNewTokens` copies of `<|mask|>`.
+
+```
+[Question]
+What is the capital of France?
+[/Question]
+
+[Answer]
+<|mask|><|mask|><|mask|> … <|mask|>
+```
+
+Each pass predicts every still-masked position at once and commits only a subset; the rest go back to
+being masks and are predicted again next pass, now conditioned on what has just been written — to their
+**right** as well as their left. That is the whole trick, and it is the one thing a causal decoder
+structurally cannot do.
+
+Which positions get committed is decided by three rules, all of which matter:
+
+1. **Blocks.** Unmasking is confined to a `blockSize` window sweeping left to right. Without it the model
+   commits scattered high-confidence tokens across the whole canvas — punctuation, stopwords, a closing
+   `[/Answer]` — and then has to write prose around fixed points it chose before it had a sentence.
+2. **Confidence.** Candidates within the block are ranked by softmax probability. Anything above `tau` is
+   committed immediately; otherwise just enough are taken to keep the block inside its step budget. This
+   is why `steps` is a budget rather than a count: an easy answer finishes in a quarter of it.
+3. **Adjacency.** Two neighbouring positions are never committed in the same pass. Each was predicted
+   while the other was still a mask, so both are individually likely and jointly often not — this rule is
+   what stops "the the".
+
+Vocabulary padding has to be handled explicitly: ids at or above `realVocabSize` (64402 of 65536) were
+never trained, and they are excluded from the argmax *and* the softmax denominator.
+
+Liquid's Space also caches K/V and shortconv state so later passes recompute only the active block. That
+needs a graph with cache inputs and outputs; this export has neither, and re-runs the full canvas every
+pass instead. Simpler, exact, and a constant `T / blockSize` factor more compute — which is affordable
+precisely because passes are counted in tens rather than in tokens.
+
 ## Scripts
 
 | Command | What |
 | --- | --- |
-| `bun run export` | Export all three repos into `models/`. |
+| `bun run export` | Export all four repos into `models/`. |
 | `bun run export:check` | Python-side parity report + writes the `fixtures.json` the TS tests replay. |
 | `bun run parity` | JavaScript-side parity report — the table above. |
 | `bun test` | Unit tests. No weights required. |
@@ -285,8 +356,14 @@ Integration tests and `parity` find the weights via `LFM_MODEL_ROOT`, defaulting
 - **First load is slow** — the graph has to be fetched and the WASM session built. Subsequent loads hit the
   HTTP cache, and the demo serves weights with `Cache-Control: immutable` so they are never re-fetched.
   Nothing here streams or shards the weights.
-- **Two of Liquid's five demos are implemented** (prompt routing, policy linting), plus fill-mask on the
-  base encoder. The rest are not.
+- **Three of Liquid's five demos are implemented** (prompt routing, policy linting, masked diffusion),
+  plus fill-mask on the base encoder. The rest are not.
+- **Masked diffusion is slow in the browser.** Every pass is a full forward over the canvas and a default
+  run is 32 of them, so expect tens of seconds under WASM where the other tasks take one pass. The demo's
+  panel is the only one that does not run on its own — you have to press Generate.
+- **`q4` is not published for the diffusion checkpoint.** It fails the exporter's cosine-similarity gate
+  against fp32; a loop that conditions each pass on the last does not tolerate the drift a one-shot
+  encoder absorbs.
 - **Batch is 1 everywhere in the JS path.** The graph is traced with a dynamic batch axis and handles
   padding correctly, but `EncoderModel.forward` feeds a single sequence and drops the batch axis.
 - **The exporter needs a Python toolchain that is not vendored** — no lockfile, no pinned environment. See

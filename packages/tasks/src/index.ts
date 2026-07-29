@@ -1,3 +1,10 @@
+export type {
+	Diffuser,
+	DiffusionFrame,
+	DiffusionOptions,
+	DiffusionResult,
+} from "./diffusion.js";
+export { DIFFUSION_MODEL, loadDiffuser, renderChatPrompt, trimAnswer } from "./diffusion.js";
 export type { FillMask, MaskPrediction, MaskSlot } from "./fill-mask.js";
 export { ENCODER_MODEL, loadFillMask } from "./fill-mask.js";
 export type { LintFlag, LintResult, LintWord, PolicyLinter } from "./linter.js";

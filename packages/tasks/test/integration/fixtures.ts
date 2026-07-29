@@ -27,6 +27,17 @@ export interface MaskCase {
 	readonly top_k: { id: number; token: string; prob: number }[];
 }
 
+export interface DiffusionCase {
+	readonly prompt: string;
+	readonly rendered: string;
+	readonly input_ids: number[];
+	readonly max_new: number;
+	readonly steps: number;
+	readonly block_size: number;
+	readonly reference_ids: number[];
+	readonly reference_text: string;
+}
+
 export function fixtures<T>(model: string): { cases: T[] } {
 	const path = join(MODEL_ROOT, model, "fixtures.json");
 	if (!existsSync(path)) {

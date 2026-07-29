@@ -43,6 +43,23 @@ export interface HeadConfig {
 	readonly projDim: number;
 }
 
+/** The MDLM decode schedule, shipped in the diffusion checkpoint's config. */
+export interface DiffusionConfig {
+	readonly maskTokenId: number;
+	readonly maskToken: string;
+	readonly maxNewTokens: number;
+	readonly steps: number;
+	readonly blockSize: number;
+	readonly temperature: number;
+	/** Confidence above which a token is committed ahead of its step budget. */
+	readonly tau: number;
+	readonly template: {
+		readonly system: string;
+		readonly user: string;
+		readonly stop: readonly string[];
+	};
+}
+
 /** The subset of the exported `config.json` this library relies on. */
 export interface ModelConfig {
 	readonly task: string;
@@ -54,6 +71,7 @@ export interface ModelConfig {
 	readonly realVocabSize: number;
 	readonly outputs: readonly string[];
 	readonly head?: HeadConfig;
+	readonly diffusion?: DiffusionConfig;
 }
 
 export interface LoadProgress {

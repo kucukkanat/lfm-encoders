@@ -4,6 +4,7 @@ export { dot, meanRows, normalize, poolSpan, sigmoid, softmax } from "./pooling.
 export { buildPrefix, labelRanges, textSpan } from "./prompt.js";
 export type {
 	Device,
+	DiffusionConfig,
 	Dtype,
 	HeadConfig,
 	LoadOptions,

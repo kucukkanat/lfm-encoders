@@ -1,4 +1,10 @@
-import type { LintWord, MaskSlot, RouteResult } from "@lfm-encoder/tasks";
+import type {
+	DiffusionFrame,
+	DiffusionResult,
+	LintWord,
+	MaskSlot,
+	RouteResult,
+} from "@lfm-encoder/tasks";
 import type { Request, Response, Settings, TaskName } from "./worker.js";
 
 export interface LoadState {
@@ -38,6 +44,8 @@ export class InferenceClient {
 	onReady: ((task: TaskName, loadMs: number) => void) | undefined;
 	/** Wall-clock cost of the last completed forward pass. */
 	onTiming: ((elapsedMs: number) => void) | undefined;
+	/** One denoising pass finished; only masked diffusion emits these. */
+	onFrame: ((frame: DiffusionFrame) => void) | undefined;
 
 	constructor() {
 		this.#worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
@@ -49,6 +57,10 @@ export class InferenceClient {
 			}
 			if (message.status === "ready") {
 				this.onReady?.(message.task, message.loadMs);
+				return;
+			}
+			if (message.status === "frame") {
+				this.onFrame?.(message.frame);
 				return;
 			}
 			const entry = this.#pending.get(message.id);
@@ -83,6 +95,18 @@ export class InferenceClient {
 
 	fillMask(settings: Settings, text: string, topK: number): Promise<MaskSlot[]> {
 		return this.#send({ kind: "fill-mask", settings, text, topK });
+	}
+
+	diffuse(
+		settings: Settings,
+		prompt: string,
+		options: { maxNewTokens: number; steps: number; temperature: number },
+	): Promise<DiffusionResult> {
+		return this.#send({ kind: "diffuse", settings, prompt, ...options });
+	}
+
+	cancel(): Promise<null> {
+		return this.#send({ kind: "cancel" });
 	}
 }
 

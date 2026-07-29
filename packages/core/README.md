@@ -64,11 +64,16 @@ telling you a `token_proj` lookup on the base encoder would be a mistake.
 | --- | --- |
 | `id` | `string` |
 | `dtype` | `Dtype` |
-| `config` | `ModelConfig` — the subset of `config.json` this library relies on, plus `head` on the task repos |
+| `config` | `ModelConfig` — the subset of `config.json` this library relies on, plus `head` on the task repos and `diffusion` on the diffusion checkpoint |
 | `tokenizer` | `PreTrainedTokenizer` from transformers.js |
 | `tokenize(text)` | `Tokenized`. Cheap; no session involved. |
 | `forward(tokenized)` | `Promise<Readonly<Record<string, Matrix>>>` |
+| `forwardIds(ids)` | The same pass over ids that never came from `tokenize` — see below |
 | `dispose()` | `Promise<void>` |
+
+`forwardIds` exists for masked diffusion, which builds its own canvas (prompt ids followed by a run of
+`<|mask|>`) and rewrites it in place between passes. There is no source string to anchor spans to, so
+`Tokenized` would be a lie; everything else about the call is identical.
 
 ### `Matrix`
 
