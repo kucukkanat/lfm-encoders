@@ -39,7 +39,16 @@ export type Response =
 
 type Loaded = PromptRouter | PolicyLinter | FillMask;
 
-const MODEL_ROOT = "/models";
+/**
+ * Where weights come from.
+ *
+ * In dev the Vite middleware serves a local export off disk, which is fast to
+ * iterate against. A deployed build has no such luxury — GitHub Pages will not
+ * host 2.5 GB — so it omits `modelRoot` entirely and transformers.js fetches the
+ * published repos from the Hugging Face Hub instead.
+ */
+const source = import.meta.env.DEV ? { modelRoot: "/models" } : {};
+
 const loaders: Record<
 	TaskName,
 	(options: Parameters<typeof loadPromptRouter>[0]) => Promise<Loaded>
@@ -76,7 +85,7 @@ function get(task: TaskName, settings: Settings, requestId: number): Promise<Loa
 		.catch(() => undefined)
 		.then(() =>
 			loaders[task]({
-				modelRoot: MODEL_ROOT,
+				...source,
 				dtype: settings.dtype,
 				device: settings.device,
 				onProgress: ({ file, fraction }) => {

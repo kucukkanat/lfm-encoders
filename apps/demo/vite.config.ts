@@ -64,6 +64,9 @@ function serveModels(): Plugin {
 }
 
 export default defineConfig({
+	// GitHub Pages serves the app under /<repo>/; override with BASE_PATH=/ for
+	// a root deployment.
+	base: process.env.BASE_PATH ?? "/lfm-encoders/",
 	plugins: [serveModels()],
 	worker: { format: "es" },
 	optimizeDeps: { exclude: ["@huggingface/transformers"] },

@@ -9,3 +9,4 @@ models/
 .venv/
 __pycache__/
 *.pyc
+apps/demo/dist/
