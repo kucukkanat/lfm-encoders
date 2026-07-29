@@ -22,9 +22,11 @@
 				<label class="field">
 					<span class="field__label">Precision</span>
 					<select id="dtype" class="control">
-						<option value="fp32" selected>fp32 &mdash; 1.4 GB, exact</option>
+						<option value="q8" selected>q8 &mdash; 357 MB</option>
 						<option value="q4">q4 &mdash; 448 MB</option>
-						<option value="q8">q8 &mdash; 357 MB</option>
+						<!-- Only a local export has the fp32 graph; the published Hub repos
+						     carry q8 and q4 only. Removed at runtime outside dev. -->
+						<option value="fp32" data-local-only>fp32 &mdash; 1.4 GB, exact</option>
 					</select>
 				</label>
 				<label class="field">

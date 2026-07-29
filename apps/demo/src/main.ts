@@ -11,6 +11,15 @@ const client = new InferenceClient();
 
 const dtypeSelect = need<HTMLSelectElement>("dtype");
 const deviceSelect = need<HTMLSelectElement>("device");
+
+// A deployed build streams from the Hub, which only carries the quantized
+// graphs. Offering fp32 there produces a 404 on a file that was never uploaded,
+// so the option is dropped rather than left to fail at load time.
+if (!import.meta.env.DEV) {
+	for (const option of dtypeSelect.querySelectorAll("option[data-local-only]")) {
+		option.remove();
+	}
+}
 const settings = (): Settings => ({
 	dtype: dtypeSelect.value as Dtype,
 	device: deviceSelect.value as Device,
@@ -50,10 +59,13 @@ client.onTiming = (elapsedMs) => {
 function reportError(error: unknown): void {
 	meter.hidden = true;
 	const message = error instanceof Error ? error.message : String(error);
+	const missing = /not found|404|could not locate/i.test(message);
 	status(
-		/not found|404/i.test(message)
+		missing && import.meta.env.DEV
 			? `Missing weights. Run \`bun run export\` from the repo root. (${message})`
-			: message,
+			: missing
+				? `That precision is not published for this model. (${message})`
+				: message,
 		"error",
 	);
 }
