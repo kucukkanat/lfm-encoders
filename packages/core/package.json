@@ -1,0 +1,31 @@
+{
+	"name": "@lfm-encoder/core",
+	"version": "0.1.0",
+	"description": "Run LFM2.5-Encoder ONNX exports in the browser or Node: loading, tokenization with character offsets, and span pooling.",
+	"license": "MIT",
+	"type": "module",
+	"sideEffects": false,
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.json"
+	},
+	"peerDependencies": {
+		"@huggingface/transformers": "^4.2.0"
+	},
+	"keywords": [
+		"lfm2",
+		"onnx",
+		"transformers.js",
+		"encoder",
+		"webgpu"
+	]
+}

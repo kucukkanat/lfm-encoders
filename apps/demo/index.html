@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>LFM2.5-Encoder in the browser</title>
+		<meta
+			name="description"
+			content="Zero-shot prompt routing and policy linting with LFM2.5-Encoder-350M, running entirely client-side on ONNX Runtime."
+		/>
+	</head>
+	<body>
+		<header class="masthead">
+			<div class="masthead__title">
+				<h1>LFM2.5&#8209;Encoder, client&#8209;side</h1>
+				<p>
+					A 350M-parameter multilingual bidirectional encoder, exported to ONNX and quantized to run
+					in your browser. Nothing you type leaves this tab.
+				</p>
+			</div>
+			<div class="masthead__settings">
+				<label class="field">
+					<span class="field__label">Precision</span>
+					<select id="dtype" class="control">
+						<option value="fp32" selected>fp32 &mdash; 1.4 GB, exact</option>
+						<option value="q4">q4 &mdash; 448 MB</option>
+						<option value="q8">q8 &mdash; 357 MB</option>
+					</select>
+				</label>
+				<label class="field">
+					<span class="field__label">Backend</span>
+					<select id="device" class="control">
+						<option value="auto" selected>auto</option>
+						<option value="wasm">wasm</option>
+						<option value="webgpu">webgpu</option>
+					</select>
+				</label>
+			</div>
+		</header>
+
+		<div class="tabs" id="tabs" role="tablist" aria-label="Demos">
+			<button class="tab" type="button" role="tab" data-panel="routing" aria-controls="panel-routing" aria-selected="true">Prompt routing</button>
+			<button class="tab" type="button" role="tab" data-panel="linting" aria-controls="panel-linting" aria-selected="false">Policy linting</button>
+			<button class="tab" type="button" role="tab" data-panel="fill-mask" aria-controls="panel-fill-mask" aria-selected="false">Fill&#8209;mask</button>
+		</div>
+
+		<div class="status" id="status" role="status" aria-live="polite">
+			<span class="status__text" id="status-text">Pick a demo to load its model.</span>
+			<div class="meter" id="meter" hidden><div class="meter__fill" id="meter-fill"></div></div>
+		</div>
+
+		<main>
+			<!-- ------------------------------------------------ prompt routing -->
+			<section class="panel" id="panel-routing" role="tabpanel" data-panel="routing">
+				<div class="panel__intro">
+					<h2>Zero-shot prompt routing</h2>
+					<p>
+						Categories are plain prose you write here &mdash; nothing is trained or configured. The
+						encoder reads the category list and the text together in a single bidirectional pass,
+						then scores the text against every category at once.
+					</p>
+				</div>
+
+				<div class="split">
+					<div class="column">
+						<label class="field">
+							<span class="field__label">Text to route</span>
+							<textarea id="route-text" class="control control--area" rows="4">
+My invoice from last month charged me twice, can I get a refund?</textarea
+							>
+						</label>
+						<div class="field">
+							<span class="field__label">Categories</span>
+							<ul class="chips" id="route-labels"></ul>
+							<form class="adder" id="route-add">
+								<input class="control" name="label" placeholder="Add a category&hellip;" />
+								<button class="button" type="submit">Add</button>
+							</form>
+						</div>
+						<div class="examples" id="route-examples"></div>
+					</div>
+
+					<div class="column">
+						<span class="field__label">Result</span>
+						<ol class="scores" id="route-scores">
+							<li class="empty">Results appear as you type.</li>
+						</ol>
+						<p class="meta" id="route-meta"></p>
+					</div>
+				</div>
+			</section>
+
+			<!-- ------------------------------------------------- policy linting -->
+			<section class="panel" id="panel-linting" role="tabpanel" data-panel="linting" hidden>
+				<div class="panel__intro">
+					<h2>Zero-shot policy linting</h2>
+					<p>
+						Write your rules as free text. Every token in the draft is scored against every rule in
+						one pass, so adding a rule costs a handful of tokens rather than another model.
+					</p>
+				</div>
+
+				<div class="split">
+					<div class="column">
+						<label class="field">
+							<span class="field__label">Draft</span>
+							<textarea id="lint-text" class="control control--area" rows="5">
+We guarantee a 300% return within six months, risk free.</textarea
+							>
+						</label>
+						<div class="field">
+							<span class="field__label">Policy</span>
+							<ul class="chips" id="lint-rules"></ul>
+							<form class="adder" id="lint-add">
+								<input class="control" name="label" placeholder="Add a rule&hellip;" />
+								<button class="button" type="submit">Add</button>
+							</form>
+						</div>
+						<label class="field">
+							<span class="field__label">
+								Threshold <output id="lint-threshold-value">0.50</output>
+							</span>
+							<input
+								id="lint-threshold"
+								class="slider"
+								type="range"
+								min="0.05"
+								max="0.95"
+								step="0.05"
+								value="0.5"
+							/>
+						</label>
+						<div class="examples" id="lint-examples"></div>
+					</div>
+
+					<div class="column">
+						<span class="field__label">Flagged text</span>
+						<p class="highlighted" id="lint-output"><span class="empty">Results appear as you type.</span></p>
+						<ul class="legend" id="lint-legend"></ul>
+						<p class="meta" id="lint-meta"></p>
+					</div>
+				</div>
+			</section>
+
+			<!-- ------------------------------------------------------ fill-mask -->
+			<section class="panel" id="panel-fill-mask" role="tabpanel" data-panel="fill-mask" hidden>
+				<div class="panel__intro">
+					<h2>Fill&#8209;mask</h2>
+					<p>
+						The base encoder with its masked-LM head. Bidirectional, so each blank is predicted from
+						the whole sentence rather than only what comes before it.
+					</p>
+				</div>
+
+				<div class="split">
+					<div class="column">
+						<label class="field">
+							<span class="field__label">Text &mdash; use <code>&lt;|mask|&gt;</code> for a blank</span>
+							<textarea id="mask-text" class="control control--area" rows="3">
+The capital of France is &lt;|mask|&gt;.</textarea
+							>
+						</label>
+						<div class="examples" id="mask-examples"></div>
+						<p class="note">
+							This panel loads the base encoder, a separate 424 MB download from the routing and
+							linting heads.
+						</p>
+					</div>
+					<div class="column">
+						<span class="field__label">Predictions</span>
+						<div id="mask-output"><p class="empty">Results appear as you type.</p></div>
+						<p class="meta" id="mask-meta"></p>
+					</div>
+				</div>
+			</section>
+		</main>
+
+		<footer class="colophon">
+			<p>
+				Models:
+				<a href="https://huggingface.co/LiquidAI/LFM2.5-Encoder-350M">LFM2.5&#8209;Encoder&#8209;350M</a>,
+				<a href="https://huggingface.co/LiquidAI/LFM2.5-Encoder-350M-Prompt-Router">Prompt&#8209;Router</a>
+				and
+				<a href="https://huggingface.co/LiquidAI/LFM2.5-Encoder-350M-Policy-Linter">Policy&#8209;Linter</a>
+				by Liquid AI, under the LFM Open License v1.0. Running on ONNX Runtime through
+				transformers.js.
+			</p>
+		</footer>
+
+		<script type="module" src="/src/main.ts"></script>
+	</body>
+</html>

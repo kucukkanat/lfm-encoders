@@ -1,0 +1,138 @@
+/**
+ * Design tokens.
+ *
+ * Every value the UI uses is named here and nowhere else, so restyling the app
+ * means editing this file rather than hunting through components. Semantic
+ * tokens (`--color-surface`) are defined in terms of primitives (`--slate-900`)
+ * so a theme swap only has to remap one layer.
+ */
+
+:root {
+	/* ---- primitives: colour ------------------------------------------- */
+	--slate-50: #f6f8fa;
+	--slate-100: #eaeef2;
+	--slate-200: #d6dde5;
+	--slate-400: #8b97a6;
+	--slate-500: #6b7787;
+	--slate-700: #333e4d;
+	--slate-800: #212a36;
+	--slate-850: #19212b;
+	--slate-900: #121820;
+	--slate-950: #0b0f14;
+
+	--accent-300: #7fd7e8;
+	--accent-500: #17b3cd;
+	--accent-600: #0f8ea3;
+
+	--danger-400: #f2777a;
+	--danger-500: #dc4b4f;
+	--warn-400: #e5b35e;
+	--ok-400: #6bc48f;
+
+	/* Categorical hues for per-rule highlighting. Chosen to stay
+	   distinguishable against both surface colours and for the common forms of
+	   colour-vision deficiency, so a rule is never identified by hue alone —
+	   the UI always pairs them with a label. */
+	--rule-1: #17b3cd;
+	--rule-2: #b98cf0;
+	--rule-3: #e5b35e;
+	--rule-4: #6bc48f;
+	--rule-5: #f2777a;
+	--rule-6: #7fa6f0;
+
+	/* ---- primitives: type --------------------------------------------- */
+	--font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	--font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+	--text-xs: 0.75rem;
+	--text-sm: 0.8125rem;
+	--text-md: 0.9375rem;
+	--text-lg: 1.125rem;
+	--text-xl: 1.5rem;
+	--text-2xl: 2rem;
+
+	--weight-normal: 400;
+	--weight-medium: 500;
+	--weight-bold: 650;
+
+	--leading-tight: 1.25;
+	--leading-normal: 1.6;
+
+	/* ---- primitives: space (4px base) ---------------------------------- */
+	--space-0: 0;
+	--space-1: 0.25rem;
+	--space-2: 0.5rem;
+	--space-3: 0.75rem;
+	--space-4: 1rem;
+	--space-5: 1.5rem;
+	--space-6: 2rem;
+	--space-7: 3rem;
+
+	/* ---- primitives: size ---------------------------------------------- */
+	--size-control: 2.25rem;
+	--size-bar: 0.5rem;
+	--width-page: 68rem;
+	--width-prose: 42rem;
+
+	/* ---- primitives: shape --------------------------------------------- */
+	--radius-sm: 4px;
+	--radius-md: 8px;
+	--radius-lg: 12px;
+	--radius-full: 999px;
+
+	--border-thin: 1px;
+	--border-thick: 2px;
+
+	/* ---- primitives: depth + motion ------------------------------------ */
+	--opacity-muted: 0.62;
+	--opacity-disabled: 0.4;
+	--opacity-wash: 0.14;
+
+	--elevation-1: 0 1px 2px rgb(0 0 0 / 0.16);
+	--elevation-2: 0 4px 16px rgb(0 0 0 / 0.22);
+
+	--duration-fast: 120ms;
+	--duration-slow: 320ms;
+	--ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+	/* ---- semantic: dark is the default --------------------------------- */
+	--color-canvas: var(--slate-950);
+	--color-surface: var(--slate-900);
+	--color-surface-raised: var(--slate-850);
+	--color-border: var(--slate-800);
+	--color-border-strong: var(--slate-700);
+	--color-text: var(--slate-100);
+	--color-text-muted: var(--slate-400);
+	--color-accent: var(--accent-500);
+	--color-accent-text: var(--accent-300);
+	--color-on-accent: var(--slate-950);
+	--color-danger: var(--danger-400);
+	--color-warn: var(--warn-400);
+	--color-ok: var(--ok-400);
+}
+
+@media (prefers-color-scheme: light) {
+	:root {
+		--color-canvas: var(--slate-50);
+		--color-surface: #ffffff;
+		--color-surface-raised: var(--slate-50);
+		--color-border: var(--slate-200);
+		--color-border-strong: var(--slate-400);
+		--color-text: var(--slate-900);
+		--color-text-muted: var(--slate-500);
+		--color-accent: var(--accent-600);
+		--color-accent-text: var(--accent-600);
+		--color-on-accent: #ffffff;
+		--color-danger: var(--danger-500);
+		--elevation-1: 0 1px 2px rgb(16 24 32 / 0.08);
+		--elevation-2: 0 4px 16px rgb(16 24 32 / 0.1);
+	}
+}
+
+/* ---- breakpoints ------------------------------------------------------
+   Custom properties cannot be used in media queries, so the breakpoints are
+   recorded here as the single source of truth and repeated literally in
+   app.css. Keep the two in step.
+     --break-md: 48rem
+     --break-lg: 64rem
+*/

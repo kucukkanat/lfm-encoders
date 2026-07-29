@@ -1,0 +1,36 @@
+{
+	"name": "@lfm-encoder/tasks",
+	"version": "0.1.0",
+	"description": "Zero-shot prompt routing, policy linting and fill-mask on LFM2.5-Encoder, running fully in the browser.",
+	"license": "MIT",
+	"type": "module",
+	"sideEffects": false,
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"parity": "bun run scripts/parity.ts",
+		"bench": "bun run scripts/bench.ts"
+	},
+	"dependencies": {
+		"@lfm-encoder/core": "workspace:*"
+	},
+	"peerDependencies": {
+		"@huggingface/transformers": "^4.2.0"
+	},
+	"keywords": [
+		"zero-shot",
+		"routing",
+		"classification",
+		"onnx",
+		"transformers.js"
+	]
+}

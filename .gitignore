@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Exported ONNX weights: ~4.3 GB, reproducible with `bun run export`.
+models/
+
+# Python toolchain for tools/export
+.venv/
+__pycache__/
+*.pyc

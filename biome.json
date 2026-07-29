@@ -1,0 +1,9 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
+	"files": {
+		"includes": ["**", "!**/dist", "!**/models", "!**/node_modules", "!**/*.jsonl"]
+	},
+	"formatter": { "enabled": true, "indentStyle": "tab", "lineWidth": 100 },
+	"linter": { "enabled": true, "rules": { "preset": "recommended" } },
+	"javascript": { "formatter": { "quoteStyle": "double", "trailingCommas": "all" } }
+}
