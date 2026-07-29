@@ -1,6 +1,6 @@
 import { type EncoderModel, type LoadOptions, loadEncoderModel } from "@lfm-encoder/core";
 
-export const ENCODER_MODEL = "LFM2.5-Encoder-350M-ONNX";
+export const ENCODER_MODEL = "kucukkanat/LFM2.5-Encoder-350M-ONNX";
 
 export interface MaskPrediction {
 	readonly token: string;

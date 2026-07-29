@@ -242,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
     files = [DTYPE_FILES[d] for d in dtypes]
 
     for spec in SPECS:
-        out_dir = args.out / spec.name
+        out_dir = args.out / spec.hub_id
         repo = f"{owner}/{spec.name}"
         if not (out_dir / "config.json").exists():
             print(f"[publish] {spec.name}: not exported, skipping")

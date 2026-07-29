@@ -32,7 +32,7 @@ def _sessions(onnx_dir: Path) -> dict[str, Any]:
 
 
 def check_two_tower(spec: ModelSpec, out_root: Path) -> dict[str, Any]:
-    repo = out_root / spec.name
+    repo = out_root / spec.hub_id
     head = json.loads((repo / "config.json").read_text())["head"]
     heading = head["prefix_heading"]
     cases = P.ROUTING_CASES if head["kind"] == "cosine" else P.LINTING_CASES
@@ -93,7 +93,7 @@ def check_two_tower(spec: ModelSpec, out_root: Path) -> dict[str, Any]:
 
 
 def check_mlm(spec: ModelSpec, out_root: Path, topk: int = 5) -> dict[str, Any]:
-    repo = out_root / spec.name
+    repo = out_root / spec.hub_id
     tokenizer = AutoTokenizer.from_pretrained(spec.repo, trust_remote_code=True)
     model = AutoModelForMaskedLM.from_pretrained(
         spec.repo, trust_remote_code=True, dtype=torch.float32, attn_implementation="eager"
@@ -144,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
     specs = [BY_NAME[n] for n in args.only] if args.only else list(BY_NAME.values())
     rows = []
     for spec in specs:
-        if not (args.out / spec.name / "config.json").exists():
+        if not (args.out / spec.hub_id / "config.json").exists():
             print(f"[check] {spec.name}: not exported, skipping", flush=True)
             continue
         print(f"[check] {spec.name}: comparing against fp32 PyTorch ...", flush=True)

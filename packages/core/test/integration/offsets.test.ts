@@ -26,7 +26,7 @@ setDefaultTimeout(120_000);
 const MODEL_ROOT =
 	process.env.LFM_MODEL_ROOT ??
 	resolve(dirname(fileURLToPath(import.meta.url)), "../../../../models");
-const MODEL = "LFM2.5-Encoder-350M-Prompt-Router-ONNX";
+const MODEL = "kucukkanat/LFM2.5-Encoder-350M-Prompt-Router-ONNX";
 const available = existsSync(join(MODEL_ROOT, MODEL, "tokenizer.json"));
 
 const EMOJI = "ship it 🚀🎉 — the release 👩‍🚀 is live";

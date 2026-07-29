@@ -8,7 +8,7 @@ import {
 } from "@lfm-encoder/core";
 import { labelVectors, loadHead, runTwoTower } from "./two-tower.js";
 
-export const POLICY_LINTER_MODEL = "LFM2.5-Encoder-350M-Policy-Linter-ONNX";
+export const POLICY_LINTER_MODEL = "kucukkanat/LFM2.5-Encoder-350M-Policy-Linter-ONNX";
 
 /** A word of the input, scored independently against every rule. */
 export interface LintWord extends Span {

@@ -40,7 +40,7 @@ def _log(message: str) -> None:
 def run(spec: ModelSpec, out_root: Path, dtypes: tuple[str, ...], keep_fp32: bool) -> None:
     from .onnx_export import _load  # imported lazily: pulls torch + the checkpoint
 
-    out_dir = out_root / spec.name
+    out_dir = out_root / spec.hub_id
     onnx_dir = out_dir / "onnx"
     fp32 = onnx_dir / "model.onnx"
 
@@ -123,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
 
     specs = [BY_NAME[n] for n in args.only] if args.only else list(SPECS)
     for spec in specs:
-        out_dir = args.out / spec.name
+        out_dir = args.out / spec.hub_id
         if (out_dir / "onnx").is_dir() and any((out_dir / "onnx").glob("model_*.onnx")):
             if not args.force:
                 _log(f"{spec.name}: exists, skipping (use --force to re-export)")

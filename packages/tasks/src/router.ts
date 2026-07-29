@@ -8,7 +8,7 @@ import {
 } from "@lfm-encoder/core";
 import { labelVectors, loadHead, runTwoTower } from "./two-tower.js";
 
-export const PROMPT_ROUTER_MODEL = "LFM2.5-Encoder-350M-Prompt-Router-ONNX";
+export const PROMPT_ROUTER_MODEL = "kucukkanat/LFM2.5-Encoder-350M-Prompt-Router-ONNX";
 
 export interface RouteScore {
 	readonly label: string;

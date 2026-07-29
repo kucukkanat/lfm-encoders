@@ -14,8 +14,9 @@ supplied at call time; nothing is trained, fine-tuned or cached per label set.
 
 ```bash
 bun install
+bun run dev        # works immediately — weights stream from the Hub
 
-# One-time: pull the three checkpoints and write models/. Needs the Python
+# Optional: re-export from source instead of using the published weights. Needs the Python
 # toolchain (see tools/export/README.md) and downloads ~4.3 GB of checkpoints from the Hub.
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install torch "transformers>=5.12" onnx onnxruntime onnx_ir onnxconverter_common
@@ -43,8 +44,26 @@ console.log(tokenCount); // 41 — one pass covers the categories *and* the text
 await router.dispose();
 ```
 
-In the browser, `modelRoot` is a URL prefix instead of a path (`"/models"`); omit it entirely to fetch from
-the Hugging Face Hub.
+Omitting `modelRoot` fetches straight from the Hugging Face Hub — no export needed to try it:
+
+```ts
+const router = await loadPromptRouter();   // pulls kucukkanat/LFM2.5-Encoder-350M-Prompt-Router-ONNX
+```
+
+In the browser, `modelRoot` is a URL prefix instead of a path (`"/models"`). A local export is written to
+`models/<owner>/<name>`, mirroring the Hub layout, so the same model id resolves either way.
+
+## Published weights
+
+| Hub repo | Task | q8 | q4 |
+| --- | --- | --: | --: |
+| [`kucukkanat/LFM2.5-Encoder-350M-ONNX`](https://huggingface.co/kucukkanat/LFM2.5-Encoder-350M-ONNX) | fill-mask / embeddings | 424 MB | 490 MB |
+| [`kucukkanat/LFM2.5-Encoder-350M-Prompt-Router-ONNX`](https://huggingface.co/kucukkanat/LFM2.5-Encoder-350M-Prompt-Router-ONNX) | zero-shot routing | 357 MB | 448 MB |
+| [`kucukkanat/LFM2.5-Encoder-350M-Policy-Linter-ONNX`](https://huggingface.co/kucukkanat/LFM2.5-Encoder-350M-Policy-Linter-ONNX) | zero-shot token matching | 357 MB | 448 MB |
+
+Re-exports of Liquid AI's originals under the same
+[LFM Open License v1.0](https://huggingface.co/LiquidAI/LFM2.5-Encoder-350M/blob/main/LICENSE); weights
+are unchanged apart from quantization.
 
 ## Repo map
 

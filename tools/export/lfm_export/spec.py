@@ -16,6 +16,11 @@ from .graphs import MaskedLmGraph, TwoTowerGraph
 # "feed the named inputs, return the named outputs" behaviour we want.
 JS_MODEL_TYPE = "lfm2-bidirectional"
 
+# Hub account the exports are published under. Output directories mirror
+# `<owner>/<name>` so the same `modelRoot` works for a local export and for a
+# plain Hub id, and the library's default model constants resolve either way.
+HUB_OWNER = "kucukkanat"
+
 
 @dataclass(frozen=True)
 class ModelSpec:
@@ -32,6 +37,10 @@ class ModelSpec:
     @property
     def output_names(self) -> tuple[str, ...]:
         return self.graph.outputs
+
+    @property
+    def hub_id(self) -> str:
+        return f"{HUB_OWNER}/{self.name}"
 
 
 def _router_head(model: Any) -> dict[str, Any]:
