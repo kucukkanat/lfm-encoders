@@ -57,15 +57,36 @@ client.onTiming = (elapsedMs) => {
 };
 
 /**
- * Announce that a pass has started.
+ * The "a pass is running" indicator for one panel.
  *
- * Panels keep the previous answer on screen until a new one arrives, which is
- * right — blanking the pane on every keystroke would be worse. But a pass costs
- * milliseconds on WebGPU and seconds on WASM, and over seconds an unchanged pane
- * reads as the demo having ignored the edit rather than being busy with it.
+ * `stale`, where a panel has one, is the pane still showing the previous answer;
+ * it is dimmed for the duration so the user can see it is about to be replaced.
+ * Diffusion passes none: its canvas is repainted every pass, so it is visibly
+ * live already and dimming it would only make the frames harder to read.
+ *
+ * Every call is paired — `.finally()` at the call sites — so a failed or
+ * cancelled run clears the indicator just as a successful one does.
  */
-function working(what: string): void {
-	status(`${what}…`);
+function indicator(id: string, stale?: Element): { start: () => void; stop: () => void } {
+	const node = need(id);
+	// Counted rather than a boolean: a superseded request settles *after* its
+	// replacement has started, so the last one to finish is not the last one
+	// running, and a flag would clear the indicator while a pass is still going.
+	let running = 0;
+	const sync = (): void => {
+		node.hidden = running === 0;
+		stale?.classList.toggle("result--working", running > 0);
+	};
+	return {
+		start: () => {
+			running += 1;
+			sync();
+		},
+		stop: () => {
+			running = Math.max(0, running - 1);
+			sync();
+		},
+	};
 }
 
 /**
@@ -179,6 +200,7 @@ function setupRouting(): void {
 		onChange: () => run(),
 	});
 
+	const busy = indicator("route-busy", output);
 	const infer = newest((body: string, categories: string[]) =>
 		client.route(settings(), body, categories),
 	);
@@ -191,10 +213,11 @@ function setupRouting(): void {
 			replace(output, [el("li", "empty", "Add some text and at least one category.")]);
 			return;
 		}
-		working("Routing");
+		busy.start();
 		infer(body, categories)
 			.then((result) => result && render(result))
-			.catch(reportError);
+			.catch(reportError)
+			.finally(busy.stop);
 	});
 
 	function render(result: RouteResult): void {
@@ -282,6 +305,7 @@ function setupLinting(): void {
 	let current: (LintData & { body: string }) | undefined;
 	/** The run in flight, so Stop has something to aim at. */
 	let job: Cancellable<LintData> | undefined;
+	const busy = indicator("lint-busy", output);
 
 	function run(): void {
 		if (job) return;
@@ -294,6 +318,7 @@ function setupLinting(): void {
 		}
 		runButton.disabled = true;
 		stopButton.disabled = false;
+		busy.start();
 		const pending = client.lint(settings(), body, policy);
 		job = pending;
 		pending.promise
@@ -310,6 +335,7 @@ function setupLinting(): void {
 			.catch(reportError)
 			.finally(() => {
 				job = undefined;
+				busy.stop();
 				runButton.disabled = false;
 				stopButton.disabled = true;
 			});
@@ -426,8 +452,11 @@ function setupLinting(): void {
 	// Like diffusion, this panel never scores on its own. Switching to the tab
 	// only warms the model, so the download happens while the user is reading the
 	// blurb rather than after they ask for a result.
+	// The download is the long part, so the indicator covers the warm-up too —
+	// otherwise the panel sits blank and idle-looking through 424 MB.
 	runners.set("linting", () => {
-		client.preload("linting", settings()).catch(reportError);
+		busy.start();
+		client.preload("linting", settings()).catch(reportError).finally(busy.stop);
 	});
 }
 
@@ -438,6 +467,7 @@ function setupFillMask(): void {
 	const output = need("mask-output");
 	const meta = need("mask-meta");
 
+	const busy = indicator("mask-busy", output);
 	const infer = newest((body: string) => client.fillMask(settings(), body, 5));
 
 	const run = debounce(400, () => {
@@ -447,10 +477,11 @@ function setupFillMask(): void {
 			replace(output, [el("p", "empty", "Put <|mask|> somewhere in the text.")]);
 			return;
 		}
-		working("Predicting");
+		busy.start();
 		infer(body)
 			.then((slots) => slots && render(slots))
-			.catch(reportError);
+			.catch(reportError)
+			.finally(busy.stop);
 	});
 
 	function render(slots: MaskSlot[]): void {
@@ -517,6 +548,7 @@ function setupDiffusion(): void {
 
 	let job: Cancellable<DiffusionResult> | undefined;
 	let started = 0;
+	const busy = indicator("diffusion-busy");
 
 	/**
 	 * Draw the canvas.
@@ -555,6 +587,7 @@ function setupDiffusion(): void {
 		started = performance.now();
 		runButton.disabled = true;
 		stopButton.disabled = false;
+		busy.start();
 		replace(answer, []);
 		const pending = client.diffuse(settings(), prompt, {
 			maxNewTokens: Number(need<HTMLInputElement>("diffusion-length").value),
@@ -578,6 +611,7 @@ function setupDiffusion(): void {
 			.catch(reportError)
 			.finally(() => {
 				job = undefined;
+				busy.stop();
 				runButton.disabled = false;
 				stopButton.disabled = true;
 			});
@@ -600,7 +634,8 @@ function setupDiffusion(): void {
 	// tens of forward passes, which is not something to start on a keystroke or
 	// on a tab switch.
 	runners.set("diffusion", () => {
-		client.preload("diffusion", settings()).catch(reportError);
+		busy.start();
+		client.preload("diffusion", settings()).catch(reportError).finally(busy.stop);
 	});
 }
 

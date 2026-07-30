@@ -84,7 +84,12 @@ My invoice from last month charged me twice, can I get a refund?</textarea
 					</div>
 
 					<div class="column">
-						<span class="field__label">Result</span>
+						<span class="field__label">
+							Result
+							<span class="busy" id="route-busy" hidden>
+								Routing<span class="busy__track"><span class="busy__bar"></span></span>
+							</span>
+						</span>
 						<ol class="scores" id="route-scores">
 							<li class="empty">Results appear as you type.</li>
 						</ol>
@@ -146,7 +151,12 @@ We guarantee a 300% return within six months, risk free.</textarea
 					</div>
 
 					<div class="column">
-						<span class="field__label">Flagged text</span>
+						<span class="field__label">
+							Flagged text
+							<span class="busy" id="lint-busy" hidden>
+								Scoring<span class="busy__track"><span class="busy__bar"></span></span>
+							</span>
+						</span>
 						<p class="highlighted" id="lint-output"><span class="empty">Press Lint to score the draft.</span></p>
 						<p class="note" id="lint-stale" hidden>
 							Draft or policy has changed &mdash; press Lint to re-score.
@@ -182,7 +192,12 @@ The capital of France is &lt;|mask|&gt;.</textarea
 						</p>
 					</div>
 					<div class="column">
-						<span class="field__label">Predictions</span>
+						<span class="field__label">
+							Predictions
+							<span class="busy" id="mask-busy" hidden>
+								Predicting<span class="busy__track"><span class="busy__bar"></span></span>
+							</span>
+						</span>
 						<div id="mask-output"><p class="empty">Results appear as you type.</p></div>
 						<p class="meta" id="mask-meta"></p>
 					</div>
@@ -234,7 +249,12 @@ What is the capital of France?</textarea
 						</p>
 					</div>
 					<div class="column">
-						<span class="field__label">Canvas</span>
+						<span class="field__label">
+							Canvas
+							<span class="busy" id="diffusion-busy" hidden>
+								Denoising<span class="busy__track"><span class="busy__bar"></span></span>
+							</span>
+						</span>
 						<div id="diffusion-canvas" class="canvas">
 							<p class="empty">Press Generate to watch the answer condense.</p>
 						</div>

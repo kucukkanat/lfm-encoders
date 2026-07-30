@@ -150,6 +150,16 @@ async function diffuse(
 		let budget = perBlock;
 
 		for (;;) {
+			// Give the host a turn before deciding whether to keep going.
+			//
+			// `signal` is cooperative, so something outside this loop has to be able
+			// to run in order to flip it. Awaiting the forward pass is not enough:
+			// promises resume in a *micro*task, and a worker's pending `message`
+			// events are macrotasks — so a Stop posted mid-generation would sit
+			// undelivered until the loop had already finished, which is precisely
+			// when it is no longer any use. One macrotask per pass costs microseconds
+			// against a pass measured in hundreds of milliseconds or worse.
+			await new Promise((resolve) => setTimeout(resolve, 0));
 			if (options.signal?.aborted) return finish();
 			const rows: number[] = [];
 			for (let i = from; i < to; i++) if (canvas[i] === mask) rows.push(i);

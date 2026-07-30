@@ -297,6 +297,75 @@ select.control {
 	border-style: solid;
 }
 
+/* --------------------------------------------------------------- busy
+   Every panel says when a pass is running, in the label above the pane where
+   the answer will appear.
+
+   This exists because the cost of a pass is not a constant: milliseconds on
+   WebGPU, seconds on WASM. Over seconds, a pane still showing the previous
+   answer reads as a demo that ignored the edit rather than one that is working
+   on it — which is exactly how it looks in browsers without WebGPU.
+
+   Indeterminate on purpose. onnxruntime reports nothing from inside a forward
+   pass, so there is no fraction to show and a synthesised one would be a lie. */
+.busy {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin-left: auto;
+	color: var(--color-accent-text);
+	font-family: var(--font-mono);
+	letter-spacing: normal;
+	text-transform: none;
+}
+.busy[hidden] {
+	display: none;
+}
+.busy__track {
+	position: relative;
+	width: 3.5rem;
+	height: var(--size-bar);
+	border-radius: var(--radius-full);
+	/* Not `--color-surface-raised`: in the light theme that is a hair off the
+	   surface behind it, leaving the bar looking like a dot with no track. */
+	background: var(--color-border);
+	overflow: hidden;
+}
+.busy__bar {
+	position: absolute;
+	inset-block: 0;
+	width: 45%;
+	border-radius: inherit;
+	background: var(--color-accent);
+	/* Linear, unlike everything else here: the shared easing decelerates into its
+	   end point, which on a loop reads as a lurch rather than a sweep. */
+	animation: busy-slide 1.1s linear infinite;
+}
+@keyframes busy-slide {
+	from {
+		left: -45%;
+	}
+	to {
+		left: 100%;
+	}
+}
+/* Motion is the signal here, so with it suppressed the bar has to carry the
+   state statically rather than simply stop and look like a stalled meter. */
+@media (prefers-reduced-motion: reduce) {
+	.busy__bar {
+		left: 0;
+		width: 100%;
+		animation: none;
+		opacity: var(--opacity-muted);
+	}
+}
+/* What is underneath is the answer to the *previous* input until the pass
+   lands. Dimming says so; blanking the pane would be worse than stale. */
+.result--working {
+	opacity: var(--opacity-muted);
+	transition: opacity var(--duration-slow) var(--ease);
+}
+
 /* ------------------------------------------------------------ scores */
 .scores {
 	display: grid;
