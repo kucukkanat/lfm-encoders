@@ -21,6 +21,7 @@ import {
 	type PromptRouter,
 	type RouteResult,
 } from "@lfm-encoder/tasks";
+import { CANCELLED, createRegistry } from "./cancellation.js";
 
 export type TaskName = "routing" | "linting" | "fill-mask" | "diffusion";
 
@@ -43,11 +44,18 @@ export type Request =
 			steps: number;
 			temperature: number;
 	  }
-	| { id: number; kind: "cancel" };
+	// Names the request it is abandoning rather than "whatever is running", so a
+	// Stop pressed just as a run finishes cannot take out the next one.
+	| { id: number; kind: "cancel"; target: number };
+
+/** Everything except `cancel`, which is answered inline and never queued. */
+type RunRequest = Exclude<Request, { kind: "cancel" }>;
 
 export type Response =
 	| { id: number; status: "ok"; result: unknown; elapsedMs: number }
 	| { id: number; status: "error"; message: string }
+	// Abandoned before it produced anything, so there is no result and no error.
+	| { id: number; status: "cancelled" }
 	| { id: number; status: "loading"; task: TaskName; file: string; fraction: number | undefined }
 	| { id: number; status: "ready"; task: TaskName; loadMs: number }
 	// Diffusion is the one task with something to show *during* the run: each
@@ -77,12 +85,22 @@ const loaders: Record<
 };
 
 /**
- * Set while a generation is running, so a `cancel` request can stop it.
+ * Requests the UI has abandoned, by id.
  *
- * Diffusion holds the queue for tens of seconds; without an out-of-band stop
- * the user cannot switch tabs or change precision until it finishes.
+ * Cancellation is cooperative, because onnxruntime cannot be made to drop a
+ * `run()` that is already executing. What a Stop can do is bail at the points
+ * where a request has not committed to a pass yet:
+ *
+ *   * before it is dequeued — it may have been sitting behind a 424 MB load;
+ *   * while parked on that load, via the registry's `until`;
+ *   * after its model resolves, before the forward pass starts;
+ *   * between diffusion's denoising passes, which is why stopping a generation
+ *     is near-instant while stopping a single-pass task is not.
+ *
+ * A lint that is already inside the pass therefore runs to completion, and the
+ * id is still registered when it does, so `handle` discards the result.
  */
-let cancelled = false;
+const cancellation = createRegistry();
 
 /**
  * Exactly one model stays resident.
@@ -136,8 +154,31 @@ function post(message: Response): void {
 	self.postMessage(message);
 }
 
-async function handle(request: Request): Promise<unknown> {
-	const model = await get(taskFor(request), request.settings, request.id);
+async function handle(request: RunRequest): Promise<unknown> {
+	// Checked before `get`, not just inside `until`: a request abandoned while it
+	// sat in the queue must not evict the resident model on its way out.
+	if (cancellation.aborted(request.id)) return CANCELLED;
+	const model = await cancellation.until(
+		request.id,
+		get(taskFor(request), request.settings, request.id),
+	);
+	if (model === CANCELLED) return CANCELLED;
+	if (cancellation.aborted(request.id)) return CANCELLED;
+	const result = await run(request, model);
+	// Let the message loop have a turn before deciding the result is wanted.
+	// Under the WASM backend a pass monopolises the worker thread, so a Stop
+	// pressed during one is still sitting in the queue as an undelivered
+	// macrotask — and `await` above resumes in a *micro*task, ahead of it. Without
+	// this tick the Stop would be read as arriving too late, every time.
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	// Diffusion has already honoured a Stop by the time it returns — it breaks out
+	// of its loop and hands back the canvas as it stands, which is worth showing.
+	// Nothing else can be interrupted mid-pass, so the only way to honour a Stop
+	// that arrived during one is to throw the finished answer away.
+	return cancellation.aborted(request.id) && request.kind !== "diffuse" ? CANCELLED : result;
+}
+
+async function run(request: RunRequest, model: Loaded): Promise<unknown> {
 	switch (request.kind) {
 		case "preload":
 			return null;
@@ -155,24 +196,21 @@ async function handle(request: Request): Promise<unknown> {
 		case "fill-mask":
 			return (model as FillMask).predict(request.text, { topK: request.topK });
 		case "diffuse": {
-			cancelled = false;
 			const result: DiffusionResult = await (model as Diffuser).generate(request.prompt, {
 				maxNewTokens: request.maxNewTokens,
 				steps: request.steps,
 				temperature: request.temperature,
 				onFrame: (frame) => post({ id: request.id, status: "frame", frame }),
 				get signal() {
-					return { aborted: cancelled };
+					return { aborted: cancellation.aborted(request.id) };
 				},
 			});
 			return result;
 		}
-		case "cancel":
-			return null;
 	}
 }
 
-function taskFor(request: Request): TaskName {
+function taskFor(request: RunRequest): TaskName {
 	return request.kind === "preload"
 		? request.task
 		: request.kind === "diffuse"
@@ -200,17 +238,22 @@ function taskFor(request: Request): TaskName {
  */
 let queue: Promise<unknown> = Promise.resolve();
 
-async function respond(request: Request): Promise<void> {
+async function respond(request: RunRequest): Promise<void> {
 	const started = performance.now();
 	try {
 		const result = await handle(request);
-		post({ id: request.id, status: "ok", result, elapsedMs: performance.now() - started });
+		if (result === CANCELLED) post({ id: request.id, status: "cancelled" });
+		else post({ id: request.id, status: "ok", result, elapsedMs: performance.now() - started });
 	} catch (error: unknown) {
 		post({
 			id: request.id,
 			status: "error",
 			message: error instanceof Error ? error.message : String(error),
 		});
+	} finally {
+		// Retired either way, so a later request cannot inherit a stale
+		// cancellation from one that reused the number.
+		cancellation.retire(request.id);
 	}
 }
 
@@ -218,10 +261,11 @@ self.addEventListener("message", (event: MessageEvent<Request>) => {
 	// Cancellation must not be queued: the run it is meant to interrupt is what
 	// is holding the queue.
 	if (event.data.kind === "cancel") {
-		cancelled = true;
+		cancellation.abandon(event.data.target);
 		post({ id: event.data.id, status: "ok", result: null, elapsedMs: 0 });
 		return;
 	}
 	// `respond` never rejects, so the chain cannot be poisoned by one bad request.
-	queue = queue.then(() => respond(event.data));
+	const request = event.data;
+	queue = queue.then(() => respond(request));
 });

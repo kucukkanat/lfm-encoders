@@ -133,12 +133,24 @@ We guarantee a 300% return within six months, risk free.</textarea
 								value="0.5"
 							/>
 						</label>
+						<div class="adder">
+							<button class="button" type="button" id="lint-run">Lint</button>
+							<button class="button" type="button" id="lint-stop" disabled>Stop</button>
+						</div>
 						<div class="examples" id="lint-examples"></div>
+						<p class="note">
+							Scoring is one pass over the whole draft against every rule, which is seconds of work
+							under WASM &mdash; so it runs when you press Lint rather than on every keystroke. The
+							threshold slider re-thresholds the last result without re-scoring it.
+						</p>
 					</div>
 
 					<div class="column">
 						<span class="field__label">Flagged text</span>
-						<p class="highlighted" id="lint-output"><span class="empty">Results appear as you type.</span></p>
+						<p class="highlighted" id="lint-output"><span class="empty">Press Lint to score the draft.</span></p>
+						<p class="note" id="lint-stale" hidden>
+							Draft or policy has changed &mdash; press Lint to re-score.
+						</p>
 						<ul class="legend" id="lint-legend"></ul>
 						<p class="meta" id="lint-meta"></p>
 					</div>

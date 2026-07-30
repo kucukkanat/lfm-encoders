@@ -26,6 +26,18 @@ export interface LintData {
 }
 
 /**
+ * A request the UI can still walk away from.
+ *
+ * `cancel()` is advisory — see the worker for what it can and cannot interrupt
+ * — so the outcome is carried by `promise`: a result if the run produced one,
+ * `undefined` if it was dropped first.
+ */
+export interface Cancellable<T> {
+	readonly promise: Promise<T | undefined>;
+	cancel(): void;
+}
+
+/**
  * Promise-shaped wrapper around the worker's message protocol.
  *
  * Requests carry an incrementing id so several can be in flight without their
@@ -69,61 +81,82 @@ export class InferenceClient {
 			if (message.status === "ok") {
 				this.onTiming?.(message.elapsedMs);
 				entry.resolve(message.result);
+			} else if (message.status === "cancelled") {
+				entry.resolve(undefined);
 			} else entry.reject(new Error(message.message));
 		});
 	}
 
-	#send<T>(request: WithoutId<Request>): Promise<T> {
-		const id = this.#nextId++;
-		return new Promise<T>((resolve, reject) => {
+	#post<T>(id: number, request: WithoutId<Request>): Promise<T | undefined> {
+		return new Promise<T | undefined>((resolve, reject) => {
 			this.#pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
 			this.#worker.postMessage({ ...request, id } as Request);
 		});
 	}
 
+	#send<T>(request: WithoutId<Request>): Promise<T | undefined> {
+		return this.#post<T>(this.#nextId++, request);
+	}
+
+	#start<T>(request: WithoutId<Request>): Cancellable<T> {
+		const id = this.#nextId++;
+		return {
+			promise: this.#post<T>(id, request),
+			cancel: () => void this.#send({ kind: "cancel", target: id }),
+		};
+	}
+
 	preload(task: TaskName, settings: Settings): Promise<void> {
-		return this.#send({ kind: "preload", task, settings });
+		return this.#send<void>({ kind: "preload", task, settings });
 	}
 
-	route(settings: Settings, text: string, labels: string[]): Promise<RouteResult> {
-		return this.#send({ kind: "route", settings, text, labels });
+	route(settings: Settings, text: string, labels: string[]): Cancellable<RouteResult> {
+		return this.#start({ kind: "route", settings, text, labels });
 	}
 
-	lint(settings: Settings, text: string, rules: string[]): Promise<LintData> {
-		return this.#send({ kind: "lint", settings, text, rules });
+	/** Heavy enough to be worth abandoning: one pass over the draft times every rule. */
+	lint(settings: Settings, text: string, rules: string[]): Cancellable<LintData> {
+		return this.#start({ kind: "lint", settings, text, rules });
 	}
 
-	fillMask(settings: Settings, text: string, topK: number): Promise<MaskSlot[]> {
-		return this.#send({ kind: "fill-mask", settings, text, topK });
+	fillMask(settings: Settings, text: string, topK: number): Cancellable<MaskSlot[]> {
+		return this.#start({ kind: "fill-mask", settings, text, topK });
 	}
 
 	diffuse(
 		settings: Settings,
 		prompt: string,
 		options: { maxNewTokens: number; steps: number; temperature: number },
-	): Promise<DiffusionResult> {
-		return this.#send({ kind: "diffuse", settings, prompt, ...options });
-	}
-
-	cancel(): Promise<null> {
-		return this.#send({ kind: "cancel" });
+	): Cancellable<DiffusionResult> {
+		return this.#start({ kind: "diffuse", settings, prompt, ...options });
 	}
 }
 
 /**
- * Run `task`, but only deliver the result if it is still the newest call.
+ * Run `start`, abandoning whatever the previous call left in flight.
  *
- * Every panel re-runs on input, and inference takes long enough that replies
- * arrive out of order. Dropping stale ones is what stops the results pane
- * flickering back to an older answer.
+ * Panels re-run on input, so a typed sentence issues a request per pause. The
+ * worker runs them strictly one at a time, and only the last answer is wanted —
+ * so the earlier ones are pure latency in front of it. Discarding just the
+ * *results* is not enough: on a backend where a pass costs seconds rather than
+ * milliseconds, four superseded passes are half a minute during which the pane
+ * still shows the answer to a sentence the user has finished editing, which
+ * reads as the demo being broken rather than busy.
+ *
+ * Cancelling instead lets the worker drop them before they are dequeued, so the
+ * newest request starts as soon as the one pass already running finishes.
  */
-export function latest<A extends unknown[], R>(
-	task: (...args: A) => Promise<R>,
+export function newest<A extends unknown[], R>(
+	start: (...args: A) => Cancellable<R>,
 ): (...args: A) => Promise<R | undefined> {
-	let generation = 0;
+	let current: Cancellable<R> | undefined;
 	return async (...args: A) => {
-		const mine = ++generation;
-		const result = await task(...args);
-		return mine === generation ? result : undefined;
+		current?.cancel();
+		const job = start(...args);
+		current = job;
+		const result = await job.promise;
+		// A pass already under way cannot be interrupted, so a superseded request
+		// can still come back with an answer. It is stale by definition.
+		return job === current ? result : undefined;
 	};
 }

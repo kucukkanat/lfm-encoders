@@ -1,7 +1,7 @@
 import type { Device, Dtype } from "@lfm-encoder/core";
-import type { LintWord, MaskSlot, RouteResult } from "@lfm-encoder/tasks";
+import type { DiffusionResult, LintWord, MaskSlot, RouteResult } from "@lfm-encoder/tasks";
 import "./app.css";
-import { InferenceClient, type LintData, latest } from "./client.js";
+import { type Cancellable, InferenceClient, type LintData, newest } from "./client.js";
 import { chipList, debounce, el, examples, need, percent, replace, ruleColor } from "./dom.js";
 import type { Settings, TaskName } from "./worker.js";
 
@@ -50,11 +50,43 @@ let readyNote = "";
 client.onReady = (task, loadMs) => {
 	meter.hidden = true;
 	readyNote = `${task} model loaded in ${(loadMs / 1000).toFixed(1)}s`;
-	status(`${readyNote} — cached for next time.`);
+	status(`${readyNote} — cached for next time.${backendNote}`);
 };
 client.onTiming = (elapsedMs) => {
 	status(`${readyNote} · forward pass ${elapsedMs.toFixed(0)}ms`);
 };
+
+/**
+ * Announce that a pass has started.
+ *
+ * Panels keep the previous answer on screen until a new one arrives, which is
+ * right — blanking the pane on every keystroke would be worse. But a pass costs
+ * milliseconds on WebGPU and seconds on WASM, and over seconds an unchanged pane
+ * reads as the demo having ignored the edit rather than being busy with it.
+ */
+function working(what: string): void {
+	status(`${what}…`);
+}
+
+/**
+ * Whether this browser will actually hand onnxruntime a GPU adapter.
+ *
+ * `device: "auto"` falls back to WASM without saying so, and the gap is not
+ * subtle: on this machine a routing pass measured ~0.24s under WebGPU against
+ * ~3s under WASM. Firefox has no WebGPU on macOS, which is the whole of why the
+ * demo feels broken there, so it is worth stating rather than leaving the user
+ * to conclude the model is stuck. `navigator.gpu` merely existing proves
+ * nothing — Firefox exposes it on platforms that cannot produce an adapter.
+ */
+let backendNote = "";
+const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+void Promise.resolve(gpu?.requestAdapter())
+	.catch(() => undefined)
+	.then((adapter) => {
+		if (!adapter)
+			backendNote =
+				" This browser has no WebGPU, so passes run on WASM — expect seconds, not milliseconds.";
+	});
 
 function reportError(error: unknown): void {
 	meter.hidden = true;
@@ -85,9 +117,10 @@ let active: TaskName = "routing";
  * Wrap a panel's runner so it does nothing once its tab is no longer showing.
  *
  * Panels debounce, so a keystroke can fire its inference *after* the user has
- * moved on. `latest()` discards the stale result, but the request still reaches
- * the worker, and the worker keeps exactly one model resident — so a late
- * routing pass evicts whatever the new tab just loaded and forces a re-download.
+ * moved on. `newest()` abandons the previous request, but nothing abandons one
+ * whose panel has simply gone away, and the worker keeps exactly one model
+ * resident — so a late routing pass evicts what the new tab just loaded and
+ * forces a re-download.
  * That was survivable when every model was one forward pass; with a 424 MB
  * diffusion checkpoint it is not.
  */
@@ -146,7 +179,7 @@ function setupRouting(): void {
 		onChange: () => run(),
 	});
 
-	const infer = latest((body: string, categories: string[]) =>
+	const infer = newest((body: string, categories: string[]) =>
 		client.route(settings(), body, categories),
 	);
 
@@ -158,6 +191,7 @@ function setupRouting(): void {
 			replace(output, [el("li", "empty", "Add some text and at least one category.")]);
 			return;
 		}
+		working("Routing");
 		infer(body, categories)
 			.then((result) => result && render(result))
 			.catch(reportError);
@@ -221,6 +255,9 @@ function setupLinting(): void {
 	const meta = need("lint-meta");
 	const threshold = need<HTMLInputElement>("lint-threshold");
 	const thresholdValue = need<HTMLOutputElement>("lint-threshold-value");
+	const runButton = need<HTMLButtonElement>("lint-run");
+	const stopButton = need<HTMLButtonElement>("lint-stop");
+	const staleNote = need("lint-stale");
 
 	const POLICY = [
 		"no guarantees about financial returns",
@@ -229,14 +266,25 @@ function setupLinting(): void {
 	];
 	const rules = chipList(need("lint-rules"), need<HTMLFormElement>("lint-add"), POLICY, {
 		colored: true,
-		onChange: () => run(),
+		onChange: () => touch(),
 	});
 
-	const infer = latest((body: string, policy: string[]) => client.lint(settings(), body, policy));
-	let current: LintData | undefined;
+	/**
+	 * The last result, together with the draft it was computed from.
+	 *
+	 * Word spans are offsets into the exact string that was scored. While the
+	 * panel re-ran on every keystroke that string was always the live textarea;
+	 * now that scoring is manual it is not, and re-rendering against an edited
+	 * textarea would underline the wrong characters. Keeping the source next to
+	 * the scores lets the threshold slider keep working on the old result while
+	 * the user types the next draft.
+	 */
+	let current: (LintData & { body: string }) | undefined;
+	/** The run in flight, so Stop has something to aim at. */
+	let job: Cancellable<LintData> | undefined;
 
-	const run = debounce(250, () => {
-		if (active !== "linting") return;
+	function run(): void {
+		if (job) return;
 		const body = text.value.trim();
 		const policy = rules.items();
 		if (body === "" || policy.length === 0) {
@@ -244,14 +292,41 @@ function setupLinting(): void {
 			replace(legend, []);
 			return;
 		}
-		infer(body, policy)
+		runButton.disabled = true;
+		stopButton.disabled = false;
+		const pending = client.lint(settings(), body, policy);
+		job = pending;
+		pending.promise
 			.then((result) => {
-				if (!result) return;
-				current = result;
-				render(text.value.trim());
+				// `undefined` means Stop landed before the pass began; the previous
+				// result stays on screen rather than being blanked for no reason.
+				if (!result) {
+					status("Lint cancelled.");
+					return;
+				}
+				current = { ...result, body };
+				render();
 			})
-			.catch(reportError);
-	});
+			.catch(reportError)
+			.finally(() => {
+				job = undefined;
+				runButton.disabled = false;
+				stopButton.disabled = true;
+			});
+	}
+
+	/** Whether what is on screen still describes the draft and policy as they now stand. */
+	function stale(): boolean {
+		return (
+			current !== undefined &&
+			(current.body !== text.value.trim() || current.rules.join("\n") !== rules.items().join("\n"))
+		);
+	}
+
+	function touch(): void {
+		staleNote.hidden = !stale();
+		output.classList.toggle("highlighted--stale", stale());
+	}
 
 	/**
 	 * Rebuild the highlighted text from word spans.
@@ -260,8 +335,9 @@ function setupLinting(): void {
 	 * whitespace and punctuation the model never scored — are copied through
 	 * verbatim. That keeps the output character-identical to the input.
 	 */
-	function render(body: string): void {
+	function render(): void {
 		if (!current) return;
+		const body = current.body;
 		const limit = Number(threshold.value);
 		const counts = current.rules.map(() => 0);
 		const nodes: Node[] = [];
@@ -297,6 +373,7 @@ function setupLinting(): void {
 		);
 		const flagged = counts.reduce((a, b) => a + b, 0);
 		meta.textContent = `${current.tokenCount} tokens · ${current.words.length} words · ${flagged} flagged at ≥ ${limit.toFixed(2)}`;
+		touch();
 	}
 
 	/** Index of the highest-scoring rule for this word, if any clears `limit`. */
@@ -315,7 +392,7 @@ function setupLinting(): void {
 	threshold.addEventListener("input", () => {
 		thresholdValue.textContent = Number(threshold.value).toFixed(2);
 		// Re-thresholding is pure presentation: no second forward pass.
-		render(text.value.trim());
+		render();
 	});
 
 	examples(need("lint-examples"), [
@@ -342,8 +419,16 @@ function setupLinting(): void {
 		},
 	]);
 
-	text.addEventListener("input", run);
-	runners.set("linting", whileActive("linting", run));
+	runButton.addEventListener("click", run);
+	stopButton.addEventListener("click", () => job?.cancel());
+	text.addEventListener("input", touch);
+
+	// Like diffusion, this panel never scores on its own. Switching to the tab
+	// only warms the model, so the download happens while the user is reading the
+	// blurb rather than after they ask for a result.
+	runners.set("linting", () => {
+		client.preload("linting", settings()).catch(reportError);
+	});
 }
 
 // ------------------------------------------------------------- fill-mask
@@ -353,7 +438,7 @@ function setupFillMask(): void {
 	const output = need("mask-output");
 	const meta = need("mask-meta");
 
-	const infer = latest((body: string) => client.fillMask(settings(), body, 5));
+	const infer = newest((body: string) => client.fillMask(settings(), body, 5));
 
 	const run = debounce(400, () => {
 		if (active !== "fill-mask") return;
@@ -362,6 +447,7 @@ function setupFillMask(): void {
 			replace(output, [el("p", "empty", "Put <|mask|> somewhere in the text.")]);
 			return;
 		}
+		working("Predicting");
 		infer(body)
 			.then((slots) => slots && render(slots))
 			.catch(reportError);
@@ -429,7 +515,7 @@ function setupDiffusion(): void {
 		});
 	}
 
-	let running = false;
+	let job: Cancellable<DiffusionResult> | undefined;
 	let started = 0;
 
 	/**
@@ -460,24 +546,30 @@ function setupDiffusion(): void {
 	};
 
 	function run(): void {
-		if (running) return;
+		if (job) return;
 		const prompt = text.value.trim();
 		if (prompt === "") {
 			replace(canvas, [el("p", "empty", "Ask something first.")]);
 			return;
 		}
-		running = true;
 		started = performance.now();
 		runButton.disabled = true;
 		stopButton.disabled = false;
 		replace(answer, []);
-		client
-			.diffuse(settings(), prompt, {
-				maxNewTokens: Number(need<HTMLInputElement>("diffusion-length").value),
-				steps: Number(need<HTMLInputElement>("diffusion-steps").value),
-				temperature: Number(need<HTMLInputElement>("diffusion-temp").value),
-			})
+		const pending = client.diffuse(settings(), prompt, {
+			maxNewTokens: Number(need<HTMLInputElement>("diffusion-length").value),
+			steps: Number(need<HTMLInputElement>("diffusion-steps").value),
+			temperature: Number(need<HTMLInputElement>("diffusion-temp").value),
+		});
+		job = pending;
+		pending.promise
 			.then((result) => {
+				// Stopping mid-generation still yields the canvas as it stands; only a
+				// Stop that lands before the first pass leaves nothing to show.
+				if (!result) {
+					status("Generation cancelled.");
+					return;
+				}
 				replace(answer, [el("p", undefined, result.text || "(empty)")]);
 				const elapsed = `${((performance.now() - started) / 1000).toFixed(1)}s`;
 				meta.textContent = `${result.steps} passes · ${result.promptTokens} prompt tokens · ${result.canvasTokens} on the canvas · ${elapsed}`;
@@ -485,16 +577,14 @@ function setupDiffusion(): void {
 			})
 			.catch(reportError)
 			.finally(() => {
-				running = false;
+				job = undefined;
 				runButton.disabled = false;
 				stopButton.disabled = true;
 			});
 	}
 
 	runButton.addEventListener("click", run);
-	stopButton.addEventListener("click", () => {
-		void client.cancel();
-	});
+	stopButton.addEventListener("click", () => job?.cancel());
 
 	examples(need("diffusion-examples"), [
 		{ label: "Haiku", apply: () => set("Write a haiku about the ocean at dawn.") },

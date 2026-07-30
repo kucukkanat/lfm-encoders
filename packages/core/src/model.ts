@@ -1,6 +1,7 @@
 import {
 	AutoTokenizer,
 	env,
+	LogLevel,
 	PreTrainedModel,
 	type PreTrainedTokenizer,
 	Tensor,
@@ -71,6 +72,13 @@ export async function loadEncoderModel(
 	// transformers.js's built-in architectures. Going through AutoModel would
 	// reach the same place only after failing a mapping lookup and logging a
 	// warning about an unknown model class.
+	//
+	// `from_pretrained` still runs `resolve_model_type`, which cannot place
+	// `TwoTowerGraph` either and warns before falling back to EncoderOnly — the
+	// single-file, single-pass shape this loader wants. Correct outcome, alarming
+	// message, on every load. Warnings are dropped so it stops frightening
+	// consumers; errors still surface.
+	env.logLevel = LogLevel.ERROR;
 	const [tokenizer, model] = await Promise.all([
 		AutoTokenizer.from_pretrained(id, reporting),
 		PreTrainedModel.from_pretrained(id, {

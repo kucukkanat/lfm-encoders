@@ -354,6 +354,13 @@ select.control {
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 }
+/* Scores that describe a draft or policy the user has since edited. Dimmed
+   rather than cleared: the old highlight is still worth reading, and the
+   threshold slider still re-thresholds it without a second pass. */
+.highlighted--stale {
+	border-style: dashed;
+	opacity: var(--opacity-muted);
+}
 .hit {
 	padding: 0.15em 0.2em;
 	border-radius: var(--radius-sm);

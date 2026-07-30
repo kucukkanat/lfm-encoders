@@ -12,7 +12,7 @@
 		"check": "biome check .",
 		"check:fix": "biome check --write .",
 		"typecheck": "tsc --build --force",
-		"test": "bun test packages/*/test/unit",
+		"test": "bun test packages/*/test/unit apps/*/test/unit",
 		"test:integration": "bun test packages/*/test/integration",
 		"export": "PYTHONPATH=tools/export python3 -m lfm_export --out models",
 		"dev": "bun run --filter '@lfm-encoder/demo' dev",
